@@ -1,0 +1,9 @@
+Dump of assembler code for function print_hello:
+   0x00000000004005d6 <+0>:	push   %rbp
+   0x00000000004005d7 <+1>:	mov    %rsp,%rbp
+   0x00000000004005da <+4>:	mov    $0x4006a8,%edi
+   0x00000000004005df <+9>:	callq  0x4004d0 <puts@plt>
+   0x00000000004005e4 <+14>:	nop
+   0x00000000004005e5 <+15>:	pop    %rbp
+   0x00000000004005e6 <+16>:	retq   
+End of assembler dump.

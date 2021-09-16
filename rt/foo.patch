@@ -1,0 +1,22 @@
+--- foo.c	2021-09-14 03:59:54.923142812 -0700
++++ bar.c	2021-09-16 05:20:22.635463668 -0700
+@@ -1,10 +1,17 @@
+-// foo.c                                                                        
++// bar.c                                                                                   
+ #include <stdio.h>
+ #include <time.h>
+ 
++#if 0
++void print_hello2()
++{
++	printf("hello world2.\n");
++}
++#endif
+ void print_hello(void)
+ {
+-    printf("Hello world!\n");
++    printf("Hello world %s!\n", "being patched");
++//	print_hello2();
+ }
+ 
+ int main(void)
