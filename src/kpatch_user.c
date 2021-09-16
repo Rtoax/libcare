@@ -148,6 +148,9 @@ out_err:
 	return ret;
 }
 
+/**
+ *  libcare-ctl unpatch -p $(pidof foo)
+ */
 static int
 processes_unpatch(int pid, char *buildids[], int nbuildids)
 {
@@ -171,6 +174,9 @@ static int usage_unpatch(const char *err)
 	return err ? 0 : -1;
 }
 
+/**
+ *  libcare-ctl unpatch -p $(pidof foo)
+ */
 int cmd_unpatch_user(int argc, char *argv[])
 {
 	int opt, pid = -1, is_pid_set = 0;
@@ -178,6 +184,9 @@ int cmd_unpatch_user(int argc, char *argv[])
 	if (argc < 3)
 		return usage_unpatch(NULL);
 
+    /**
+     *  
+     */
 	while ((opt = getopt(argc, argv, "hp:")) != EOF) {
 		switch (opt) {
 		case 'h':
@@ -201,6 +210,9 @@ int cmd_unpatch_user(int argc, char *argv[])
 	if (!kpatch_check_system())
 		return -1;
 
+    /**
+     *  libcare-ctl unpatch -p $(pidof foo)
+     */
 	return processes_unpatch(pid, argv, argc);
 }
 
@@ -438,6 +450,9 @@ out_err:
 	return ret;
 }
 
+/**
+ *  
+ */
 int cmd_info_user(int argc, char *argv[])
 {
 	int opt, pid = -1, verbose = 0, print_description = 1;

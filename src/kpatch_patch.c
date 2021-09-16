@@ -311,9 +311,9 @@ patch_apply_hunk(struct object_file *o, size_t nhunk)
 	       o->name, info->daddr, info->dlen, info->saddr, info->slen);
 	*(unsigned int *)(code + 1) = (unsigned int)(info->saddr - info->daddr - 5);
 	ret = kpatch_process_mem_write(o->proc,
-				       code,
-				       info->daddr,
-				       sizeof(code));
+            				       code,
+            				       info->daddr,
+            				       sizeof(code));
 	/*
 	 * NOTE(pboldin): This is only stored locally, as information have
 	 * been copied to patient's memory already.
@@ -469,6 +469,9 @@ object_apply_patch(struct object_file *o)
 	if (ret < 0)
 		return ret;
 
+    /**
+     *  
+     */
 	for (i = 0; i < o->ninfo; i++) {
 		ret = patch_apply_hunk(o, i);
 		if (ret < 0)
@@ -822,6 +825,9 @@ kpatch_unapply_patches(kpatch_process_t *proc,
 	return unapplied;
 }
 
+/**
+ *  
+ */
 int process_unpatch(int pid, void *_data)
 {
 	int ret;
@@ -830,16 +836,25 @@ int process_unpatch(int pid, void *_data)
 	char **buildids = data->buildids;
 	int nbuildids = data->nbuildids;
 
+    /**
+     *  
+     */
 	ret = kpatch_process_init(proc, pid, /* start */ 0, /* send_fd */ -1);
 	if (ret < 0)
 		return -1;
 
+    /**
+     *  
+     */
 	kpatch_process_print_short(proc);
 
 	ret = kpatch_process_attach(proc);
 	if (ret < 0)
 		goto out;
 
+    /**
+     *  
+     */
 	ret = kpatch_process_map_object_files(proc);
 	if (ret < 0)
 		goto out;

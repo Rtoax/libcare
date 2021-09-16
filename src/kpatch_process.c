@@ -254,6 +254,9 @@ object_map_elf_segments(struct object_file *o)
 {
 	int ret;
 
+    /**
+     *  
+     */
 	if (is_kernel_object_name(o->name))
 		return 0;
 
@@ -266,13 +269,18 @@ object_map_elf_segments(struct object_file *o)
 	}
 
 	kpdebug("Populating ondisk ELF segments for '%s'...", o->name);
+    /**
+     *  
+     */
 	ret = kpatch_elf_object_is_shared_lib(o);
 	if (ret < 0) {
 		kperr("can't process ELF file\n");
 		return -1;
 	}
 	o->is_shared_lib = ret;
-
+    /**
+     *  
+     */
 	ret = kpatch_elf_parse_program_header(o);
 	if (ret < 0)
 		kperr("can't parse program header\n");
@@ -508,16 +516,25 @@ kpatch_process_map_object_files(kpatch_process_t *proc)
 	struct object_file *o;
 	int ret;
 
+    /**
+     *  
+     */
 	ret = kpatch_process_parse_proc_maps(proc);
 	if (ret < 0)
 		return -1;
 
+    /**
+     *  
+     */
 	list_for_each_entry(o, &proc->objs, list) {
 		ret = object_map_elf_segments(o);
 		if (ret)
 			return -1;
 	}
 
+    /**
+     *  
+     */
 	ret = kpatch_process_associate_patches(proc);
 	if (ret >= 0) {
 		kpinfo("Found %d applied patch(es).\n", ret);
@@ -531,8 +548,9 @@ process_destroy_object_files(kpatch_process_t *proc)
 {
 	struct object_file *o, *tmp;
 
-	list_for_each_entry_safe(o, tmp, &proc->objs, list)
+	list_for_each_entry_safe(o, tmp, &proc->objs, list) {
 		object_destroy(o);
+    }
 }
 
 static void

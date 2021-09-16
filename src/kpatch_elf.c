@@ -170,6 +170,9 @@ elf_object_is_interp_exception(struct object_file *o)
 	return 0;
 }
 
+/**
+ *  
+ */
 int kpatch_elf_object_is_shared_lib(struct object_file *o)
 {
 	size_t i;
