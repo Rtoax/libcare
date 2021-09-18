@@ -174,7 +174,10 @@ struct kpatch_process {
 	/* List of free VMA areas */
 	struct list_head vmaholes;
 
-	/* libc's base address to use as a worksheet */
+    /**
+     *  libc 地址 - 这是 /proc/PID/maps 中 libc 地址最小的虚拟地址
+     */
+	/* libc's base address to use as a worksheet(工作表) */
 	unsigned long libc_base;
 
 	/*

@@ -390,7 +390,7 @@ object_apply_patch(struct object_file *o)
 	}
 
     /**
-     *  
+     *  加载 kpatch info
      */
     //  .pushsection .kpatch.info,"a",@progbits
     //print_hello.Lpi:
@@ -407,15 +407,19 @@ object_apply_patch(struct object_file *o)
 	if (ret < 0)
 		return ret;
 
+    /**
+     *  补丁文件
+     */
 	kp = o->kpfile.patch;
-
+    // 按8字节向上对齐
 	sz = ROUND_UP(kp->total_size, 8);
+    
     /**
      *  Undefined symbol 'printf@@GLIBC_2.2.5'
+     *  Undefined symbol 'puts@@GLIBC_2.2.5'
      */
 	undef = kpatch_count_undefined(o);
 	if (undef) {
-        //Undefined symbol 'printf@@GLIBC_2.2.5'
         /**
          *  为 每个 未定义的 label 分配一个 jmp table
          *  使用 malloc
@@ -428,10 +432,15 @@ object_apply_patch(struct object_file *o)
 	}
 
     /**
-     *  补丁
+     *  补丁 信息
+     *  
      */
 	kp->user_info = (unsigned long)o->info - (unsigned long)o->kpfile.patch;
 	kp->user_undo = sz;
+
+    /**
+     *  
+     */
 	sz = ROUND_UP(sz + HUNK_SIZE * o->ninfo, 16);
 
 	sz = ROUND_UP(sz, 4096);
@@ -440,7 +449,9 @@ object_apply_patch(struct object_file *o)
 	 * Map patch as close to the original code as possible.
 	 * Otherwise we can't use 32-bit jumps.
 	 * 
-     *  映射 补丁
+     *  映射 补丁 
+     *  在尽可能贴近原有 代码的位置 映射 补丁
+     *  注意，这个函数没有 将补丁代码 拷贝到内核地址空间
      */
 	ret = kpatch_object_allocate_patch(o, sz);
 	if (ret < 0)

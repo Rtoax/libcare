@@ -1218,14 +1218,25 @@ kpatch_process_load_libraries(kpatch_process_t *proc)
 	return 1;
 }
 
+/**
+ *  拆分 hole - 可参见 内核中的 MM VMA 内存管理部分内容
+ */
 static int
 vm_hole_split(struct vm_hole *hole,
-	      unsigned long alloc_start,
-	      unsigned long alloc_end)
+      	      unsigned long alloc_start,
+      	      unsigned long alloc_end)
 {
+    /**
+     *  前后都留一页?
+     *  前后多出来的地址没有mmap 怎么办?
+     */
 	alloc_start = ROUND_DOWN(alloc_start, PAGE_SIZE) - PAGE_SIZE;
 	alloc_end = ROUND_UP(alloc_end, PAGE_SIZE) + PAGE_SIZE;
 
+    info_log("Split: %016lx - %016lx\n", alloc_start, alloc_end);
+    /**
+     *  将这个 hole 拆分成两块
+     */
 	if (alloc_start > hole->start) {
 		struct vm_hole *left = NULL;
 
@@ -1236,6 +1247,9 @@ vm_hole_split(struct vm_hole *hole,
 		left->start = hole->start;
 		left->end = alloc_start;
 
+        /**
+         *  拆分后的 hole 添加到链表
+         */
 		list_add(&left->list, &hole->list);
 	}
 
@@ -1287,6 +1301,9 @@ random_from_range(unsigned long min, unsigned long max)
  *
  * Since holes can be much larger than 2GiB take extra caution to allocate
  * patch region inside the (-2GiB, +2GiB) range from the original object.
+ *
+ * 为 patch 找到一个 region 
+ * 
  */
 static unsigned long
 object_find_patch_region(struct object_file *obj,
@@ -1296,6 +1313,7 @@ object_find_patch_region(struct object_file *obj,
 	struct list_head *head = &obj->proc->vmaholes;
 	struct vm_hole *left_hole = obj->previous_hole,
 		       *right_hole = next_hole(left_hole, head);
+    
 	unsigned long max_distance = 0x80000000;
 	struct obj_vm_area *sovma;
 
@@ -1347,12 +1365,18 @@ object_find_patch_region(struct object_file *obj,
 			left_hole = prev_hole(left_hole, head);
 	}
 
+    /**
+     *  
+     */
 	if (region_start == region_end) {
 		kperr("can't find suitable region for patch on '%s'\n",
 		      obj->name);
 		return -1UL;
 	}
 
+    /**
+     *  
+     */
 	region_start = random_from_range(region_start >> PAGE_SHIFT,
 					 region_end >> PAGE_SHIFT);
 	region_start <<= PAGE_SHIFT;
@@ -1362,29 +1386,35 @@ object_find_patch_region(struct object_file *obj,
 }
 
 /**
-  *  
-  */
+ *  映射补丁 
+ *  
+ *  1. 利用mmap 为 被 ptrace 的进程 分配内存，后续将在此内存中放入补丁代码
+ *  2. 切分原有的 hole，像 内核中的 VMA 那样
+ */
 int
-kpatch_object_allocate_patch(struct object_file *o,
-			     size_t sz)
+kpatch_object_allocate_patch(struct object_file *o, size_t sz)
 {
-	unsigned long addr;
+	unsigned long addr, find_region_addr;
 	struct vm_hole *hole = NULL;
 
     /**
-     *  找到一块 /proc/PID/maps 中能放下 这块 patch 的地址空间
+     *  找到一块 /proc/PID/maps 中能放下 这块 patch 的地址空间，这是一个 hole
      */
 	addr = object_find_patch_region(o, sz, &hole);
 	if (!addr)
 		return -1;
+    find_region_addr = addr;
+    
+    warn_log("find addr for patch, addr = %016x\n", addr);
 
     /**
-     *  映射
+     *  映射 - mmap
+     *  addr 为 mmap 的返回值
      */
 	addr = kpatch_mmap_remote(proc2pctx(o->proc),
-    				  addr, sz,
-    				  PROT_READ | PROT_WRITE | PROT_EXEC,
-    				  MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            				  addr, sz,
+            				  PROT_READ | PROT_WRITE | PROT_EXEC,
+            				  MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	if (addr == 0) {
 		kplogerror("remote alloc of 0x%lx bytes failed\n",
 			   addr);
@@ -1392,7 +1422,14 @@ kpatch_object_allocate_patch(struct object_file *o,
 	}
 
     /**
-     *  
+     *  这两个地址打印出来是相同的，(如果没有特殊的page 对齐，这两个地址应该就是相等的)
+     *  注意：这两个地址，和 libcare 进程没有任何关系
+     */
+    info_log("MMAP: %016lx = mmap(%016lx, ...)\n", addr, find_region_addr);
+    
+
+    /**
+     *  补丁所在的虚拟地址
      */
 	o->kpta = addr;
 
@@ -1407,6 +1444,9 @@ kpatch_object_allocate_patch(struct object_file *o,
 	return vm_hole_split(hole, addr, addr + sz);
 }
 
+/**
+ *  
+ */
 int
 kpatch_process_init(kpatch_process_t *proc,
 		    int pid,

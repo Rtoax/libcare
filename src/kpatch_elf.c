@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <assert.h>
 #include <sys/mman.h>
 #include <limits.h>
 
@@ -592,14 +593,31 @@ out:
  */
 static char *secname(GElf_Ehdr *ehdr, GElf_Shdr *s)
 {
+    /**
+     *  ELF 文件头 + section header offset = section header
+     */
 	GElf_Shdr *shdr = (void *)ehdr + ehdr->e_shoff;
+    /**
+     *  e_shstrndx - Section header string table index
+     *  
+     */
 	char *str = (void *)ehdr + shdr[ehdr->e_shstrndx].sh_offset;
-
+    
 	return str + s->sh_name;
 }
 
+/**
+ *  
+ */
 static int kpatch_is_our_section(GElf_Shdr *s)
 {
+    /**
+     *  原作者说这里需要 fix,
+     *  我觉得这里需要添加更多的判断
+     *  .bss 段 可能也是 SHT_NOBITS (8)
+     *  
+     *  这是在之前设置的 SHT_NOBITS， 利用 stripped 工具，这么一看，好像也够了
+     */
 	// FIXME: is this enough???
 	return s->sh_type != SHT_NOBITS;
 }
@@ -618,12 +636,17 @@ unsigned long vaddr2addr(struct object_file *o, unsigned long vaddr)
 	return 0;
 }
 
+/**
+ *  分配 几个 jump table
+ */
 struct kpatch_jmp_table *kpatch_new_jmp_table(int entries)
 {
 	struct kpatch_jmp_table *jtbl;
 	size_t sz = sizeof(*jtbl) + entries * sizeof(struct kpatch_jmp_table_entry);
 
 	jtbl = malloc(sz);
+    assert(jtbl && "malloc jump  table failed.");
+    
 	memset(jtbl, 0, sz);
 	jtbl->size = sz;
 	jtbl->max_entry = entries;
@@ -636,6 +659,9 @@ is_undef_symbol(const Elf64_Sym *sym)
 	return sym->st_shndx == SHN_UNDEF || sym->st_shndx >= SHN_LORESERVE;
 }
 
+/**
+ *  
+ */
 int kpatch_count_undefined(struct object_file *o)
 {
 	GElf_Ehdr *ehdr;
@@ -647,27 +673,52 @@ int kpatch_count_undefined(struct object_file *o)
 	ehdr = (void *)o->kpfile.patch + o->kpfile.patch->kpatch_offset;
 	shdr = (void *)ehdr + ehdr->e_shoff;
 
+    /**
+     *  遍历 section header 
+     */
 	for (i = 1; i < ehdr->e_shnum; i++) {
 		GElf_Shdr *s = shdr + i;
+        /**
+         *  符号信息
+         */
 		if (s->sh_type == SHT_SYMTAB) {
 			symidx = i;
 			break;
 		}
 	}
-    /**
-     *  
-     */
+    
 	kpdebug("Counting undefined symbols:\n");
+    /**
+     *  符号信息便宜
+     */
 	sym = (void *)ehdr + shdr[symidx].sh_offset;
+    /**
+     *  sh_link - 链接到下一个 符号
+     */
 	strsym = (void *)ehdr + shdr[shdr[symidx].sh_link].sh_offset;
+
+    /**
+     *  节大小 / 符号项大小 = 个数
+     */
 	for (i = 1; i < shdr[symidx].sh_size / sizeof(GElf_Sym); i++) {
 		GElf_Sym *s = sym + i;
 
+        /**
+         *  st_shndx 表明 符号表 和 某些节对应
+         *          SHN_UNDEF - 未定义
+         *
+         *  st_info 符号类型和绑定属性
+         *          STB_GLOBAL - 全局符号
+         *
+         *  最终这里对应的是链接的动态库中的函数 
+         */
 		if (s->st_shndx == SHN_UNDEF &&
 		    GELF_ST_BIND(s->st_info) == STB_GLOBAL) {
 			count++;
-            //Undefined symbol 'printf@@GLIBC_2.2.5'
+            //[kpatch_count_undefined:697] Undefined symbol 'puts@@GLIBC_2.2.5'
+            //[kpatch_count_undefined:697] Undefined symbol 'printf@@GLIBC_2.2.5'
 			kpdebug("Undefined symbol '%s'\n", strsym + s->st_name);
+			info_log("Undefined symbol '%s'\n", strsym + s->st_name);
 		}
 	}
     warn_log("Undefined symbol total %d\n", count);
@@ -887,6 +938,11 @@ static unsigned long kpatch_add_jmp_entry(struct object_file *o, unsigned long a
 			((void *)&o->jmp_table->entries[e] - (void *)o->jmp_table));
 }
 
+/**
+ *  TODO 荣涛 2021年9月18日21:21:17
+ *
+ *  
+ */
 static inline int
 symbol_resolve(struct object_file *o,
 	       GElf_Shdr *shdr,
@@ -955,30 +1011,58 @@ symbol_resolve(struct object_file *o,
 	return 0;
 }
 
+/**
+ *  
+ */
 int kpatch_resolve(struct object_file *o)
 {
+    /**
+     *  文件头，section 头
+     */
 	GElf_Ehdr *ehdr;
 	GElf_Shdr *shdr;
 	GElf_Sym *sym;
 	int i, symidx, rv;
 	char *strsym;
 
+    /**
+     *  获取 补丁 ELF 文件映射的首地址，这个地址即为 ELF header
+     */
 	ehdr = (void *)o->kpfile.patch + o->kpfile.patch->kpatch_offset;
+    /**
+     *  e_shoff 为 section的首地址偏移量
+     */
 	shdr = (void *)ehdr + ehdr->e_shoff;
 
 	kpdebug("Resolving sections' addresses for '%s'\n", o->name);
+
+    /**
+     *  遍历所有 section header
+     */
 	for (i = 1; i < ehdr->e_shnum; i++) {
+        /**
+         *  获取 section header 
+         */
 		GElf_Shdr *s = shdr + i;
+        /**
+         *  如果是 symbol table
+         */
 		if (s->sh_type == SHT_SYMTAB)
 			symidx = i;
 
+        /**
+         *  TODO
+         */
 		if (kpatch_is_our_section(s)) {
 			/*
 			 * For our own sections, we just point sh_addr to
 			 * proper offet in *target process* region of memory
+			 *
+			 * kpta 保存了 patch 文件的初始地址，这个地址重定向到我们的补丁中
 			 */
 			s->sh_addr = (unsigned long)o->kpta +
-				o->kpfile.patch->kpatch_offset + s->sh_offset;
+				    o->kpfile.patch->kpatch_offset + s->sh_offset;
+            err_log("Our section : %s.\n", secname(ehdr, s));
 		} else {
 			/*
 			 * We copy the `sh_addr`esses from the original binary
@@ -987,17 +1071,37 @@ int kpatch_resolve(struct object_file *o)
 			 */
 			if (s->sh_addr)
 				s->sh_addr += (unsigned long)o->load_offset;
+            err_log("Wrong section : %s.\n", secname(ehdr, s));
 		}
 		kpdebug("section '%s' = 0x%lx\n", secname(ehdr, s), s->sh_addr);
 	}
 
 	kpdebug("Resolving symbols for '%s'\n", o->name);
+
+    /**
+     *  符号表 section header
+     */
 	sym = (void *)ehdr + shdr[symidx].sh_offset;
+//    err_log("Wrong section : %s.\n", secname(ehdr, s));
+    /**
+     *  获取符号表 section
+     */
 	strsym = (void *)ehdr + shdr[shdr[symidx].sh_link].sh_offset;
 	for (i = 1; i < shdr[symidx].sh_size / sizeof(GElf_Sym); i++) {
 		GElf_Sym *s = sym + i;
 		char *symname = strsym + s->st_name;
-
+    
+        //[kpatch_resolve:1088] symname: .
+        //[kpatch_resolve:1088] symname: .
+        //[kpatch_resolve:1088] symname: .
+        //[kpatch_resolve:1088] symname: .
+        //[kpatch_resolve:1088] symname: puts@@GLIBC_2.2.5.
+        //[kpatch_resolve:1088] symname: print_hello2.
+        //[kpatch_resolve:1088] symname: printf@@GLIBC_2.2.5.
+        //[kpatch_resolve:1088] symname: print_hello.
+        //[kpatch_resolve:1088] symname: print_hello.kpatch.
+        err_log("symname: %s.\n", symname);
+        
         /**
          *  
          */

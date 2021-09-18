@@ -1,6 +1,8 @@
 #!/bin/bash 
 # 清理
 
+make clean -C ../src
+
 rm -f *.s *.kpatch *.stripped
 
 for f in $(ls) 

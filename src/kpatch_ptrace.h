@@ -5,6 +5,9 @@
 
 #include "list.h"
 
+/**
+ *  
+ */
 struct kpatch_ptrace_ctx {
 	int pid;
 	int running;

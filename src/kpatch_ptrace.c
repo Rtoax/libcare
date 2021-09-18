@@ -9,6 +9,7 @@
 #include <asm/unistd.h>
 
 #include <unistd.h>
+#include <errno.h>
 #include <sys/syscall.h>
 #include <linux/auxvec.h>
 
@@ -29,7 +30,11 @@ kpatch_process_mem_read(kpatch_process_t *proc,
 			void *dst,
 			size_t size)
 {
-	return pread(proc->memfd, dst, size, (off_t)src);
+	int ret = pread(proc->memfd, dst, size, (off_t)src);
+    if(ret <= 0) {
+        err_log("pread failed, %s\n", strerror(errno));
+    }
+    return ret;
 }
 
 static int
@@ -575,8 +580,14 @@ static void copy_regs(struct user_regs_struct *dst,
 #undef COPY_REG
 }
 
-static
-int
+/**
+ *  在 进程 中执行一个代码
+ *
+ *  1. 保存进程当前寄存器状态
+ *  2. 读取当前进程 代码段中的代码，并保存到临时变量中(这里默认使用了 libc 的起始地址)
+ *  3. 在
+ */
+static int
 kpatch_execute_remote_func(struct kpatch_ptrace_ctx *pctx,
 			   const unsigned char *code,
 			   size_t codelen,
@@ -588,18 +599,39 @@ kpatch_execute_remote_func(struct kpatch_ptrace_ctx *pctx,
 	unsigned char orig_code[codelen];
 	int ret;
 	kpatch_process_t *proc = pctx->proc;
-	unsigned long libc_base = proc->libc_base;
 
     /**
-     *  获取现在的上下文信息
+     *  libc 地址 - 这是 /proc/PID/maps 中 libc 地址最小的虚拟地址
+     *
+     *  荣涛 2021年9月18日
+     *  
+     *  这里如果随意定义一个 地址空间好像不行，比如也是属于 libc 的一个地址 0x7fae83c52000 ，为什么?
+     *  答： 我认为需要有读写权限才行，比如说 pread 执行后errno为 Input/output error
+     *      比如说，我查看 /proc/PID/maps 中看到 地址 7fdc4e879000 也属于 libc ，同时他的权限是 r--p, 
+     *      这时候我们再进行测试，发现没有问题，如下所示
+     *      cat /proc/PID/maps
+     *      [...]
+     *      7efc173aa000-7efc17566000 r-xp 00000000 fd:00 67110125 /usr/lib64/libc-2.28.so
+     *      7efc17566000-7efc17765000 ---p 001bc000 fd:00 67110125 /usr/lib64/libc-2.28.so
+     *      7efc17765000-7efc17769000 r--p 001bb000 fd:00 67110125 /usr/lib64/libc-2.28.so
+     *      7efc17769000-7efc1776b000 rw-p 001bf000 fd:00 67110125 /usr/lib64/libc-2.28.so  
+     */
+	unsigned long libc_base = proc->libc_base; 
+    debug_log("libc_base = %016lx.\n", libc_base);
+
+    /**
+     *  获取进程当前寄存器的副本
      */
 	ret = ptrace(PTRACE_GETREGS, pctx->pid, NULL, &orig_regs);
 	if (ret < 0) {
 		kplogerror("can't get regs - %d\n", pctx->pid);
 		return -1;
 	}
+    
     /**
      *  把原有的 代码拷贝到 临时变量中
+     *  将 libc 其实代码位置覆盖，写入 我们的系统调用 - 这个系统调用对内存进行了mmap
+     *  1. 首先，需要先保存原来的代码
      */
 	ret = kpatch_process_mem_read(
         			      proc,
@@ -612,6 +644,9 @@ kpatch_execute_remote_func(struct kpatch_ptrace_ctx *pctx,
 	}
     /**
      *  写入新的代码
+     *  将 libc 其实代码位置覆盖，写入 我们的系统调用 - 这个系统调用对内存进行了mmap
+     *  2. 然后，写入我们要写入的代码
+     *  
      */
 	ret = kpatch_process_mem_write(
         			      proc,
@@ -623,16 +658,34 @@ kpatch_execute_remote_func(struct kpatch_ptrace_ctx *pctx,
 		goto poke_back;
 	}
 
+    /**
+     *  regs 赋值
+     */
 	regs = orig_regs;
+
+    /**
+     *  指令寄存器 指向 libc 基址
+     *  因为我们上面，把自定义的指令拷贝到了 这个 libc_base 位置
+     */
 	regs.rip = libc_base;
 
     /**
+     *  pregs 存放了 寄存器参数 - 这些参数用于传参
+     *  比如，我们将 代码段的代码改为 自定义的指令后，需要寄存器进行传参，
+     *  这里的 pregs 即为 参数。例如：
      *  
+     *  code 为 syscall 指令
+     *  pregs 即为 系统调用号，函数入参等信息。 
+     *
+     *  - 这里抛出一个问题，当我们需要调用超出 6 个参数时，这种方法好像就不适用了. ---荣涛 2021年9月18日
      */
 	copy_regs(&regs, pregs);
 
     /**
-     *  设置 上下文为 
+     *  设置 寄存器 为 设置好的寄存器，即：
+     *  rip = 自定义的指令，这里可以是 syscall 指令
+     *  rax = 参数，如果 rip 对应系统调用，那么 rax = 系统调用号
+     *  其他寄存器可以作为 函数调用的入参。
      */
 	ret = ptrace(PTRACE_SETREGS, pctx->pid, NULL, &regs);
 	if (ret < 0) {
@@ -641,7 +694,8 @@ kpatch_execute_remote_func(struct kpatch_ptrace_ctx *pctx,
 	}
 
     /**
-     *  等待 
+     *  等待 = wait_for_stop()
+     *  让程序继续执行， 里面使用了 ptrace(PTRACE_CONT, )
      */
 	ret = func(pctx, data);
 	if (ret < 0) {
@@ -649,7 +703,8 @@ kpatch_execute_remote_func(struct kpatch_ptrace_ctx *pctx,
 		goto poke_back;
 	}
     /**
-     *  获取寄存器信息
+     *  获取寄存器信息 
+     *  再次获取寄存器信息，
      */
 	ret = ptrace(PTRACE_GETREGS, pctx->pid, NULL, &regs);
 	if (ret < 0) {
@@ -657,7 +712,8 @@ kpatch_execute_remote_func(struct kpatch_ptrace_ctx *pctx,
 		goto poke_back;
 	}
     /**
-     *  恢复寄存器信息
+     *  恢复寄存器信息，
+     *  将之前的寄存器设置到进程上下文中，继续执行
      */
 	ret = ptrace(PTRACE_SETREGS, pctx->pid, NULL, &orig_regs);
 	if (ret < 0) {
@@ -666,19 +722,25 @@ kpatch_execute_remote_func(struct kpatch_ptrace_ctx *pctx,
 	}
 
     /**
-     *  
+     *  保存 注入代码 执行后 的寄存器状态
      */
 	*pregs = regs;
 
 poke_back:
+    /**
+     *  把进程地址空间代码段的进程修改回来
+     */
 	kpatch_process_mem_write(
-			proc,
-			(unsigned long *)orig_code,
-			libc_base,
-			codelen);
+        			proc,
+        			(unsigned long *)orig_code,
+        			libc_base,
+        			codelen);
 	return ret;
 }
 
+/**
+ *  
+ */
 static int
 wait_for_stop(struct kpatch_ptrace_ctx *pctx,
 	      void *data)
@@ -687,6 +749,9 @@ wait_for_stop(struct kpatch_ptrace_ctx *pctx,
 	kpdebug("wait_for_stop(pctx->pid=%d, pid=%d)\n", pctx->pid, pid);
 
 	while (1) {
+        /**
+         *  让程序继续执行
+         */
 		ret = ptrace(PTRACE_CONT, pctx->pid, NULL,
 			     (void *)(uintptr_t)status);
 		if (ret < 0) {
@@ -700,6 +765,9 @@ wait_for_stop(struct kpatch_ptrace_ctx *pctx,
 			return -1;
 		}
 
+        /**
+         *  
+         */
 		if (WIFSTOPPED(status))  {
 			if (WSTOPSIG(status) == SIGSTOP ||
 			    WSTOPSIG(status) == SIGTRAP)
@@ -772,6 +840,9 @@ wait_for_mmap(struct kpatch_ptrace_ctx *pctx,
 	return 0;
 }
 
+/**
+ *  注入代码
+ */
 int
 kpatch_execute_remote(struct kpatch_ptrace_ctx *pctx,
 		      const unsigned char *code,
@@ -912,6 +983,9 @@ kpatch_ptrace_kickstart_execve_wrapper(kpatch_process_t *proc)
 	return 0;
 }
 
+/**
+ *  在另一个进程中 注入一个系统调用
+ */
 static int kpatch_syscall_remote(struct kpatch_ptrace_ctx *pctx, int nr,
 		unsigned long arg1, unsigned long arg2, unsigned long arg3,
 		unsigned long arg4, unsigned long arg5, unsigned long arg6,
@@ -925,6 +999,19 @@ static int kpatch_syscall_remote(struct kpatch_ptrace_ctx *pctx, int nr,
 	};
 	int ret;
 
+    /**
+     *  生成 mmap 系统调用
+     *
+     *  这里和我理解的 (以及测试的函数参数传递)有点不太一样，我测试的过程如下：
+     *  
+     *  rdi	传递第一个参数
+     *  rsi	传递第二个参数
+     *  rdx	传递第三个参数或者第二个返回值
+     *  rcx	传递第四个参数 ### 不太一样
+     *  r8	传递第五个参数
+     *  r9	传递第六个参数
+     *  rax	临时寄存器或者第一个返回值
+     */
     //void *mmap(void *addr, size_t length, int prot, int flags,
     //                  int fd, off_t offset);
 	kpdebug("Executing syscall %d (pid %d)...\n", nr, pctx->pid);
@@ -937,7 +1024,7 @@ static int kpatch_syscall_remote(struct kpatch_ptrace_ctx *pctx, int nr,
 	regs.r9 = arg6;
 
     /**
-     *  
+     *  注入代码，执行 mmap 映射
      */
 	ret = kpatch_execute_remote(pctx, syscall, sizeof(syscall), &regs);
 	if (ret == 0)
@@ -968,6 +1055,10 @@ int kpatch_ptrace_resolve_ifunc(struct kpatch_ptrace_ctx *pctx,
 }
 
 #define MAX_ERRNO	4095
+
+/**
+ *  映射
+ */
 unsigned long
 kpatch_mmap_remote(struct kpatch_ptrace_ctx *pctx,
 		   unsigned long addr,
@@ -982,15 +1073,17 @@ kpatch_mmap_remote(struct kpatch_ptrace_ctx *pctx,
 
 	kpdebug("mmap_remote: 0x%lx+%lx, %x, %x, %d, %lx\n", addr, length,
 		prot, flags, fd, offset);
-    debug_log("mmap_remote: 0x%lx+%lx, %x, %x, %d, %lx\n", addr, length,
+    debug_log("mmap_remote: mmap(0x%lx, %ld, %x, %x, %d, %lx)\n", addr, length,
 		prot, flags, fd, offset);
     
     /**
+     *  比如说我们要执行一个 mmap
+     *  
      *  void *mmap(void *addr, size_t length, int prot, int flags,
-                  int fd, off_t offset);
+     *            int fd, off_t offset);
      */
 	ret = kpatch_syscall_remote(pctx, __NR_mmap, (unsigned long)addr,
-				    length, prot, flags, fd, offset, &res);
+				                length, prot, flags, fd, offset, &res);
 	if (ret < 0)
 		return 0;
 	if (ret == 0 && res >= (unsigned long)-MAX_ERRNO) {
