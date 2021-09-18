@@ -1,12 +1,12 @@
 // foo.c                                                                        
 #include <stdio.h>
+#include <unistd.h>
 #include <time.h>
 
 void print_hello(void)
 {
     printf("Hello world!\n");
 }
-
 int main(void)
 {
     while (1) {

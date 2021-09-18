@@ -19,6 +19,9 @@ struct vm_area {
 	unsigned int prot;
 };
 
+/**
+ *  /proc/PID/maps 中得到的 空洞
+ */
 struct vm_hole {
 	unsigned long start;
 	unsigned long end;
@@ -32,7 +35,11 @@ struct obj_vm_area {
 	struct list_head list;
 };
 
+/**
+ *  目标文件
+ */
 struct object_file {
+    //链表头为 kpatch_process.objs
 	struct list_head list;
 	kpatch_process_t *proc;
 
@@ -47,9 +54,15 @@ struct object_file {
 	 */
 	struct kp_file kpfile;
 
+    /**
+     *  指向 DSO  的从定向 jump 表
+     */
 	/* Pointer to jump table for DSO relocations */
 	struct kpatch_jmp_table *jmp_table;
 
+    /**
+     *  补丁在 目标进程地址空间的虚拟地址
+     */
 	/* Address of the patch in target's process address space */
 	unsigned long kpta;
 
@@ -60,6 +73,9 @@ struct object_file {
 	/* Object name (as seen in /proc/<pid>/maps) */
 	char *name;
 
+    /**
+     *  /proc/PID/maps 中的各个内存段
+     */
 	/* List of object's VM areas */
 	struct list_head vma;
 
@@ -68,6 +84,9 @@ struct object_file {
 
 	/* Patch information */
 	struct kpatch_info *info;
+    /**
+     *  添加的 section 个数 - 和
+     */
 	size_t ninfo;
 
 	/* Address of the first allocated virtual memory area */
@@ -111,6 +130,9 @@ struct object_file {
 	unsigned int is_elf:1;
 };
 
+/**
+ *  描述一个进程
+ */
 struct kpatch_process {
 	/* Pid of target process */
 	int pid;
@@ -124,10 +146,16 @@ struct kpatch_process {
 	/* Process name */
 	char comm[16];
 
+    /**
+     *  链表节点为 object_file.list
+     */
 	/* List of process objects */
 	struct list_head objs;
 	int num_objs;
 
+    /**
+     *  
+     */
 	/* List ptrace contexts (one per each thread) */
 	struct {
 		struct list_head pctxs;
@@ -140,6 +168,9 @@ struct kpatch_process {
 		unw_addr_space_t unwd;
 	} coro;
 
+    /**
+     *  列出空闲的 VMA，后续将选择这些 VMA 中合适的 VMA进行使用
+     */
 	/* List of free VMA areas */
 	struct list_head vmaholes;
 

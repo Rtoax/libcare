@@ -1172,8 +1172,10 @@ void kpatch_ptrace_ctx_destroy(struct kpatch_ptrace_ctx *pctx)
 	free(pctx);
 }
 
-int kpatch_ptrace_attach_thread(kpatch_process_t *proc,
-				int tid)
+/**
+ *  使用 ptrace 跟踪
+ */
+int kpatch_ptrace_attach_thread(kpatch_process_t *proc, int tid)
 {
 	long ret;
 	int status;
@@ -1188,8 +1190,12 @@ int kpatch_ptrace_attach_thread(kpatch_process_t *proc,
 		return -1;
 	}
 
+    /**
+     *  线程ID
+     */
 	pctx->pid = tid;
 	kpdebug("Attaching to %d...", pctx->pid);
+    debug_log("Attaching to %d...\n", pctx->pid);
 
     /**
      *  attach 进程
@@ -1201,6 +1207,7 @@ int kpatch_ptrace_attach_thread(kpatch_process_t *proc,
 	}
 
 	do {
+        debug_log("waitpid(%d)\n", tid);
 		ret = waitpid(tid, &status, __WALL);
 		if (ret < 0) {
 			kplogerror("can't wait for thread\n");
@@ -1223,8 +1230,8 @@ int kpatch_ptrace_attach_thread(kpatch_process_t *proc,
         /**
          *  
          */
-		ret = ptrace(PTRACE_CONT, pctx->pid, NULL,
-			     (void *)(uintptr_t)status);
+        debug_log("ptrace(PTRACE_CONT, %d)\n", tid);
+		ret = ptrace(PTRACE_CONT, pctx->pid, NULL, (void *)(uintptr_t)status);
 		if (ret < 0) {
 			kplogerror("can't cont tracee\n");
 			return -1;

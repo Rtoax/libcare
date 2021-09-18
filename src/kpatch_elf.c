@@ -23,25 +23,43 @@ elf_object_peek_phdr(struct object_file *o)
 	if (o->vma_start != ~(unsigned long)0)
 		return 0;
 
+    /**
+     *  VMA 起始点
+     */
 	o->vma_start = list_first_entry(&o->vma, struct obj_vm_area,
 					list)->inmem.start;
 
+    /**
+     *  ELF 文件头
+     */
 	if (o->ehdr.e_ident[0] != '\177') {
 		rv = kpatch_process_mem_read(o->proc,
-					     o->vma_start,
-					     &o->ehdr,
-					     sizeof(o->ehdr));
+            					     o->vma_start,
+            					     &o->ehdr,
+            					     sizeof(o->ehdr));
 		if (rv < 0)
 			return rv;
 	}
 
+    /**
+     *  程序头
+     */
 	if (o->phdr == NULL) {
+        /**
+         *  找到 ELF程序头位置
+         */
 		unsigned long phaddr = o->vma_start + o->ehdr.e_phoff;
 
+        /**
+         *  分配程序头
+         */
 		o->phdr = malloc(o->ehdr.e_phnum * sizeof(*o->phdr));
 		if (o->phdr == NULL)
 			return -1;
 
+        /**
+         *  拷贝这个程序头
+         */
 		rv = kpatch_process_mem_read(o->proc,
 					     phaddr,
 					     o->phdr,
@@ -51,29 +69,53 @@ elf_object_peek_phdr(struct object_file *o)
 	return rv;
 }
 
+/**
+ *  给 ELF 文件设置程序头
+ */
 int
 kpatch_elf_object_set_ehdr(struct object_file *o,
 			   const unsigned char *buf,
 			   size_t bufsize)
 {
+    debug_log("\n");
+    /**
+     *  大小 检测
+     */
 	if (bufsize < sizeof(o->ehdr))
 		return 0;
 
-
+    /**
+     *  必须是 ELF 文件类型
+     */
 	if (memcmp(buf, ELFMAG, SELFMAG)) {
 		kpdebug("magic(%s) = %x%x%x%x\n", o->name, buf[0], buf[1], buf[2], buf[3]);
 		return -1;
 	}
 
+    /**
+     *  拷贝这个 ELF 文件头
+     */
 	memcpy(&o->ehdr, buf, sizeof(o->ehdr));
 
+    /**
+     *  buffer 大小需要满足ELF 解析大小
+     *  bufsize >= 程序头偏移 + 程序头大小*程序头数量
+     *  
+     */
 	if (bufsize < o->ehdr.e_phoff + o->ehdr.e_phentsize * o->ehdr.e_phnum)
 		return 0;
 
+    /**
+     *  分配程序头 ，当然这里采用 ELF64 作为目标文件
+     */
 	o->phdr = malloc(o->ehdr.e_phnum * sizeof(*o->phdr));
 	if (o->phdr == NULL)
 		return -1;
 
+    /**
+     *  直接拷贝这个程序头
+     *  其实这里就有一点问题，当 输入的 ELF 于 目标 ELF64 不一致时候，该如何做。
+     */
 	memcpy(o->phdr, buf + o->ehdr.e_phoff,
 	       o->ehdr.e_phentsize * o->ehdr.e_phnum);
 
@@ -167,11 +209,15 @@ elf_object_is_interp_exception(struct object_file *o)
 	if (!strncmp(o->name, "libdl", 5) &&
 	    !strncmp(o->name + strlen(o->name) - 3, ".so", 3))
 		return 1;
+    /**
+     *  MORE?
+     */
+     
 	return 0;
 }
 
 /**
- *  
+ *  ELF 是否为 动态库
  */
 int kpatch_elf_object_is_shared_lib(struct object_file *o)
 {
@@ -185,6 +231,8 @@ int kpatch_elf_object_is_shared_lib(struct object_file *o)
 	/*
 	 * If type of the ELF is not ET_DYN, this is definitely
 	 * not a shared library
+	 *  如果不是动态库，直接返回
+	 *  ET_DYN 共享目标文件
 	 */
 	if (o->ehdr.e_type != ET_DYN) {
 		return 0;
@@ -198,14 +246,26 @@ int kpatch_elf_object_is_shared_lib(struct object_file *o)
 	 * program header that mush be present in any valid
 	 * executable or usually don't in shared libraries
 	 * (notable exception - libc)
+	 *
+	 * 
 	 */
-	for (i = 0; i < o->ehdr.e_phnum; i++) {
+	for (i = 0; i < o->ehdr.e_phnum/*程序头数量*/; i++) {
+        /**
+         *  PT_INTERP - 程序解释器位置的描述，如 /lib/ld-linux.so.2
+         *  
+         */
+        /**
+         *  如果是解释器 并且也不是 libc,libpthread,libdl 等
+         */
 		/* Ok, looks like this is an executable */
 		if (o->phdr[i].p_type == PT_INTERP &&
 		    !elf_object_is_interp_exception(o))
 			return 0;
 	}
 
+    /**
+     *  共享库文件
+     */
 	/* Ok, looks like this is a shared library */
 	return 1;
 }
@@ -223,6 +283,9 @@ static int prot2flags(unsigned int prot)
 	return flags;
 }
 
+/**
+ *  按照虚拟地址  和 segment 内存大小
+ */
 /* Sort by inclusion, so the previous PT_LOAD contains current PT_GNU_RELRO */
 static int phdr_compare(const void *a, const void *b)
 {
@@ -246,10 +309,17 @@ static int phdr_compare(const void *a, const void *b)
 #define PAGE_DOWN(x)	ROUND_DOWN(x, getpagesize())
 #define PAGE_UP(x)	ROUND_UP(x, getpagesize())
 
+/**
+ *  
+ */
 static int match_program_header_vm_area(Elf64_Phdr *pphdr,
 					struct obj_vm_area *ovma,
 					unsigned long load_offset)
 {
+    /**
+     *  start = 虚拟地址 + load_offset
+     *  end = start + segment在文件中的大小
+     */
 	unsigned long start = pphdr->p_vaddr + load_offset;
 	unsigned long end = start + pphdr->p_filesz;
 
@@ -257,13 +327,17 @@ static int match_program_header_vm_area(Elf64_Phdr *pphdr,
 	 * (p_memsz > p_filesz) the rest of the segemnt memory is mapped by
 	 * the glibc from the anonymous fd = -1, so we only match inmem.end
 	 * against start + pphdr->p_filesz
-	 */
+	 *
+     * TODO  
+     */
 	return (PAGE_DOWN(start) == ovma->inmem.start) &&
 	       (PAGE_UP(end) == ovma->inmem.end) &&
-	       ((pphdr->p_flags & (PF_R|PF_W|PF_X))
-		== prot2flags(ovma->inmem.prot));
+	       ((pphdr->p_flags & (PF_R|PF_W|PF_X)) == prot2flags(ovma->inmem.prot));
 }
 
+/**
+ *  解析 ELF 程序头
+ */
 int kpatch_elf_parse_program_header(struct object_file *o)
 {
 	Elf64_Phdr *maphdrs = NULL;
@@ -274,10 +348,17 @@ int kpatch_elf_parse_program_header(struct object_file *o)
 	struct obj_vm_area *ovma;
 	int rv = -1, errno_save;
 	size_t i, j, nmaps;
+
+    /**
+     *  程序头
+     */
 	Elf64_Phdr *pphdr;
 
 	kpdebug("Parsing program headers for '%s'...\n", o->name);
 
+    /**
+     *  拷贝 /proc/PID/maps 程序头到 数据结构 "o" 中
+     */
 	rv = elf_object_peek_phdr(o);
 	if (rv < 0)
 		return rv;
@@ -286,37 +367,72 @@ int kpatch_elf_parse_program_header(struct object_file *o)
 	 * vma.inmem.start and lowest phdr.v_addr
 	 */
 
+    /**
+     *  遍历所有程序头
+     */
 	/* Look for the lowest LOAD */
 	for (i = 0, nmaps = 0; i < o->ehdr.e_phnum; i++) {
 		pphdr = &o->phdr[i];
+        /**
+         *  程序头类型
+         */
 		switch (pphdr->p_type) {
+        /**
+         *  这是程序运行初期，从 ELF 文件被加载/映射 到 内存中的程序
+         */
 		case PT_LOAD:
+            /**
+             *  找到程序头中 的 最低地址
+             */
 			lowest_vaddr = lowest_vaddr > pphdr->p_vaddr
 				       ? pphdr->p_vaddr : lowest_vaddr;
+            /**
+             *  程序在这里会继续执行
+             */
 			/* FALLTHROUGH */
+        /**
+         *  read only relocation.
+         */
+            debug_log("PT_GNU_RELRO before.\n");
 		case PT_GNU_RELRO:
+            debug_log("PT_GNU_RELRO after.\n");
 			nmaps++;
 			break;
 		}
 	}
+    /**
+     *  
+     */
 	if (lowest_vaddr == ULONG_MAX) {
 		kperr("%s: unable to find lowest load address\n",
 		      o->name);
 		goto out;
 	}
 
+    /**
+     *  向下对齐
+     */
 	lowest_vaddr = PAGE_DOWN(lowest_vaddr);
 
+    /**
+     *  
+     */
 	load_offset = o->vma_start - lowest_vaddr;
 	o->load_offset = load_offset;
 
 	kpinfo("%s: load offset: %lx = %lx - %lx\n",
 	       o->name, load_offset, o->vma_start, lowest_vaddr);
 
+    /**
+     *  分配 即将映射的程序头
+     */
 	maphdrs = malloc(sizeof(*maphdrs) * nmaps);
 	if (!maphdrs)
 		goto out;
 
+    /**
+     *  给程序头赋值
+     */
 	for (i = 0, j = 0; i < o->ehdr.e_phnum; i++) {
 		pphdr = &o->phdr[i];
 		switch (pphdr->p_type) {
@@ -326,12 +442,31 @@ int kpatch_elf_parse_program_header(struct object_file *o)
 			break;
 		}
 	}
-
+    /**
+     *  排序
+     */
 	qsort(maphdrs, nmaps, sizeof(*maphdrs), phdr_compare);
 
+    for (i = 0; i < nmaps; i++) {
+		kpdebug("maphdrs[%ld] = { .p_vaddr = %lx, .p_memsz = %lx, .p_offset = %lx, .p_filesz = %lx }\n",
+    			i,
+    			maphdrs[i].p_vaddr, maphdrs[i].p_memsz,
+    			maphdrs[i].p_offset, maphdrs[i].p_filesz);
+        info_log("maphdrs[%ld] = { .p_vaddr = %lx, .p_memsz = %lx, .p_offset = %lx, .p_filesz = %lx }\n",
+    			i,
+    			maphdrs[i].p_vaddr, maphdrs[i].p_memsz,
+    			maphdrs[i].p_offset, maphdrs[i].p_filesz);
+	}
+
+    /**
+     *  
+     */
 	/* Account for GNU_RELRO */
 	for (i = 0; i < nmaps; i++) {
 
+        /**
+         *  只处理 只读 relocation readonly
+         */
 		if (maphdrs[i].p_type != PT_GNU_RELRO)
 			continue;
 
@@ -341,11 +476,19 @@ int kpatch_elf_parse_program_header(struct object_file *o)
 			goto out;
 		}
 
+        /**
+         *  设置为 不可写
+         */
 		maphdrs[i].p_flags &= ~PF_W;
 
+        /**
+         *  如果上一个 程序 segment 虚拟地址相等
+         */
 		if (maphdrs[i - 1].p_vaddr == maphdrs[i].p_vaddr) {
-			maphdrs[i - 1].p_vaddr = maphdrs[i].p_vaddr +
-				maphdrs[i].p_memsz;
+            /**
+             *  虚拟地址 
+             */
+			maphdrs[i - 1].p_vaddr = maphdrs[i].p_vaddr + maphdrs[i].p_memsz;
 			maphdrs[i - 1].p_memsz -= maphdrs[i].p_memsz;
 
 			maphdrs[i - 1].p_offset += maphdrs[i].p_filesz;
@@ -356,26 +499,46 @@ int kpatch_elf_parse_program_header(struct object_file *o)
 		}
 	}
 
+    /**
+     *  
+     */
 	for (i = 0; i < nmaps; i++) {
 		kpdebug("maphdrs[%ld] = { .p_vaddr = %lx, .p_memsz = %lx, .p_offset = %lx, .p_filesz = %lx }\n",
-			i,
-			maphdrs[i].p_vaddr, maphdrs[i].p_memsz,
-			maphdrs[i].p_offset, maphdrs[i].p_filesz);
+    			i,
+    			maphdrs[i].p_vaddr, maphdrs[i].p_memsz,
+    			maphdrs[i].p_offset, maphdrs[i].p_filesz);
+        info_log("maphdrs[%ld] = { .p_vaddr = %lx, .p_memsz = %lx, .p_offset = %lx, .p_filesz = %lx }\n",
+    			i,
+    			maphdrs[i].p_vaddr, maphdrs[i].p_memsz,
+    			maphdrs[i].p_offset, maphdrs[i].p_filesz);
 	}
 
+    /**
+     *  遍历所有 VMA
+     */
 	list_for_each_entry(ovma, &o->vma, list) {
+	    /**
+         *  跳过 没有权限的
+         */
 		if (ovma->inmem.prot == PROT_NONE) {
 			/* Ignore holes */
 			continue;
 		}
 
+        /**
+         *  遍历 segments
+         */
 		for (i = 0; i < nmaps; i++) {
 			pphdr = &maphdrs[i];
-			if (match_program_header_vm_area(pphdr,
-							 ovma, load_offset))
+            /**
+             *  
+             */
+			if (match_program_header_vm_area(pphdr, ovma, load_offset))
 				break;
 		}
-
+        /**
+         *  没有找到
+         */
 		if (i == nmaps) {
 			kperr("cant match ovma->inmem = { .start = %lx, .end = %lx, .prot = %x }\n",
 			      ovma->inmem.start, ovma->inmem.end, ovma->inmem.prot);
@@ -383,6 +546,9 @@ int kpatch_elf_parse_program_header(struct object_file *o)
 			goto out;
 		}
 
+        /**
+         *  
+         */
 		ovma->ondisk.start = pphdr->p_offset;
 		ovma->ondisk.end = pphdr->p_offset + pphdr->p_filesz;
 		ovma->ondisk.prot = ovma->inmem.prot;
@@ -391,16 +557,24 @@ int kpatch_elf_parse_program_header(struct object_file *o)
 		ovma->inelf.end = pphdr->p_vaddr + pphdr->p_memsz;
 		ovma->inelf.prot = 0;
 
+        /**
+         *  
+         */
 		ovma->inmem.start = load_offset + ovma->inelf.start;
 		ovma->inmem.end = load_offset + ovma->inelf.end;
 
-		kpdebug(" phdr[%ld]{ .start = %lx, .end = %lx, prot = %x }",
-			i,
-			ovma->ondisk.start, ovma->ondisk.end,
-			ovma->ondisk.prot);
-		kpdebug(" <-> ");
-		kpdebug("{ .start = %lx, .end = %lx, prot = %x }\n",
-			ovma->inmem.start, ovma->inmem.end, ovma->inmem.prot);
+        /**
+         *  
+         */
+#define _kpdebug(fmt...) fprintf(stderr, fmt)
+		_kpdebug(" phdr[%ld]{ .start = %lx, .end = %lx, prot = %x }",
+        			i,
+        			ovma->ondisk.start, ovma->ondisk.end,
+        			ovma->ondisk.prot);
+		_kpdebug(" <-> ");
+		_kpdebug("{ .start = %lx, .end = %lx, prot = %x }\n",
+			        ovma->inmem.start, ovma->inmem.end, ovma->inmem.prot);
+#undef _kpdebug
 	}
 
 	rv = 0;
@@ -840,6 +1014,9 @@ int kpatch_resolve(struct object_file *o)
  */
 static int kpatch_apply_relocate_add(struct object_file *o, GElf_Shdr *relsec)
 {
+    /**
+     *  
+     */
 	struct kpatch_file *kp = o->kpfile.patch;
 	GElf_Ehdr *ehdr = (void *)kp + kp->kpatch_offset;
 	GElf_Shdr *shdr = (void *)ehdr + ehdr->e_shoff, *symhdr;
@@ -961,6 +1138,9 @@ int kpatch_relocate(struct object_file *o)
 	return 0;
 }
 
+/**
+ *  加载 kpatch info
+ */
 int kpatch_elf_load_kpatch_info(struct object_file *o)
 {
 	GElf_Ehdr *ehdr;
@@ -971,6 +1151,9 @@ int kpatch_elf_load_kpatch_info(struct object_file *o)
 		return 0;
 
 	ehdr = (void *)o->kpfile.patch + o->kpfile.patch->kpatch_offset;
+    /**
+     *  读取 section header 头，第一个 section
+     */
 	shdr = (void *)ehdr + ehdr->e_shoff;
     
     //
@@ -987,11 +1170,36 @@ int kpatch_elf_load_kpatch_info(struct object_file *o)
     //    .popsection
 //	kpdebug("Loading patch info '%s'...", o->name);
 	warn_log("Loading patch info '%s'...\n", o->name);
+    /**
+     *  section header 的数量
+     */
 	for (i = 1; i < ehdr->e_shnum; i++) {
 		GElf_Shdr *s = shdr + i;
-
+        /**
+         *  如果是 .kpatch.info
+         *
+        //	.pushsection .kpatch.info,"a",@progbits
+        //print_hello.Lpi:
+        //	.quad print_hello
+        //	.quad print_hello.kpatch
+        //	.long print_hello.Lfe - print_hello
+        //	.long print_hello.kpatch_end - print_hello.kpatch
+        //	.quad kpatch_strtab1
+        //	.quad 0
+        //	.long 0
+        //	.byte 0, 0, 0, 0
+        //	.popsection         
+         */
 		if (!strcmp(secname(ehdr, s), ".kpatch.info")) {
+            /**
+             *  读取这个 section 存放的内存
+             *  这个数据结构 和 在 foobar.s 中添加的 section 相对应
+             */
 			o->info = (struct kpatch_info *)((void *)ehdr + s->sh_offset);
+            /**
+             *  section 大小/ 头大小 得到info个数，
+             *  假如我的测试例中只修改了 print_hello()函数，那么这里将只有一个
+             */
 			o->ninfo = s->sh_size / sizeof(struct kpatch_info);
 			info_log("successfully, %ld entries\n", o->ninfo);
 			return 0;

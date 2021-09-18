@@ -175,15 +175,46 @@ struct kpatch_reloc {
 };
 
 #define KPATCH_INFO_PTR64(name) union { unsigned long name; uint64_t name ## 64; }
+
+/**
+ *  从 foo.s + bar.s = foobar.s 中会添加如下的section
+ */
+//	.pushsection .kpatch.info,"a",@progbits
+//print_hello.Lpi:
+//	.quad print_hello
+//	.quad print_hello.kpatch
+//	.long print_hello.Lfe - print_hello
+//	.long print_hello.kpatch_end - print_hello.kpatch
+//	.quad kpatch_strtab1
+//	.quad 0
+//	.long 0
+//	.byte 0, 0, 0, 0
+//	.popsection 
 struct kpatch_info {
-	KPATCH_INFO_PTR64(daddr);
-	KPATCH_INFO_PTR64(saddr);
-	uint32_t dlen;
-	uint32_t slen;
-	KPATCH_INFO_PTR64(symstr);
-	KPATCH_INFO_PTR64(vaddr);
-	uint32_t flags;
-	char     pad[4];
+    union { //print_hello
+        unsigned long daddr; 
+        uint64_t daddr64; //这可能是为了 64位系统，但是这个变量没有使用
+    };
+    union { //print_hello.kpatch
+        unsigned long saddr; 
+        uint64_t saddr64; 
+    };
+//	KPATCH_INFO_PTR64(daddr);
+//	KPATCH_INFO_PTR64(saddr);
+	uint32_t dlen; //print_hello.Lfe - print_hello
+	uint32_t slen; //print_hello.kpatch_end - print_hello.kpatch
+    union { 
+        unsigned long symstr;  //kpatch_strtab1
+        uint64_t symstr64; 
+    };
+    union { 
+        unsigned long vaddr; //0
+        uint64_t vaddr64; //0
+    };
+//	KPATCH_INFO_PTR64(symstr);
+//	KPATCH_INFO_PTR64(vaddr);
+	uint32_t flags; //0
+	char     pad[4]; //[0,0,0,0]
 };
 
 struct kpatch_undo_entry {

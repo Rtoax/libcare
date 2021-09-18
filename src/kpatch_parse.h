@@ -13,7 +13,40 @@ char *cline(struct kp_file *f, int l);
 int clinenum(struct kp_file *f, int l);
 
 /* ------------------------------------------- as directives ---------------------------------------- */
+enum {
+    DIRECTIVE_ALIGN=1,
+    DIRECTIVE_TYPE=2,
+    DIRECTIVE_COMM=3,
+    DIRECTIVE_WEAK=4,
+    DIRECTIVE_SIZE=5,
+    DIRECTIVE_LABEL=6,
+    DIRECTIVE_LOCAL_LABEL=7,
+    
+    DIRECTIVE_GLOBL=10,
+    DIRECTIVE_LOCAL=11,
+    DIRECTIVE_HIDDEN=12,
+    DIRECTIVE_PROTECTED=13,
+    DIRECTIVE_INTERNAL=14,
+    
+    DIRECTIVE_TEXT=20,
+    DIRECTIVE_DATA=21,
+    DIRECTIVE_BSS=22,
+    
+    DIRECTIVE_SECTION=30,
+    DIRECTIVE_PUSHSECTION=31,
+    DIRECTIVE_POPSECTION=32,
+    DIRECTIVE_SUBSECTION=33,
+    DIRECTIVE_PREVIOUS=34,
+    
+    DIRECTIVE_COMMENT=40,
+    DIRECTIVE_SET=41,
+    
+    DIRECTIVE_OTHER=100,
+    
+    DIRECTIVE_KPFLAGS=500,
 
+};
+#if 0
 #define DIRECTIVE_ALIGN		1
 #define DIRECTIVE_TYPE		2
 #define DIRECTIVE_COMM		3
@@ -44,14 +77,16 @@ int clinenum(struct kp_file *f, int l);
 #define DIRECTIVE_OTHER		100
 
 #define DIRECTIVE_KPFLAGS	500
+#endif //DEFINE_DIRECTIVE
 
-void init_multilines(struct kp_file *f);
+void init_multilines(struct kp_file *f, const char *outputfile);
 
 void init_ctypes(struct kp_file *f);
 int ctype(struct kp_file *f, int l);
 int is_sect_cmd(struct kp_file *f, int l);
 
 int parse_ctype(char *s, bool with_checks);
+void print_parse_ctype(char *origs, int type);
 
 /* ----------------------------------------- sections ----------------------------------------- */
 

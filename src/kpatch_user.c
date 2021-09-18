@@ -34,12 +34,15 @@ static char storage_dir[PATH_MAX] = "/var/lib/libcare";
  ****************************************************************************/
 
 /* Return -1 to indicate error, -2 to stop immediately */
-typedef int (callback_t)(int pid, void *data);
+typedef int (*callback_t)(int pid, void *data);
 
 static int
 processes_do(int pid, callback_t callback, void *data);
 
 
+/**
+ *  处理这补丁
+ */
 static int
 processes_patch(kpatch_storage_t *storage,
 		int pid, int is_just_started, int send_fd)
@@ -50,9 +53,10 @@ processes_patch(kpatch_storage_t *storage,
 		.send_fd = send_fd,
 	};
     /**
-     *  
+     *  如果设置了 PID， 这里将直接运行 process_patch()
      */
-	return processes_do(pid, process_patch, &data);
+//	return processes_do(pid, process_patch, &data);
+    return process_patch(pid, &data);
 }
 
 /* Check if system is suitable */
@@ -96,6 +100,9 @@ patch_user(const char *storage_path, int pid,
      */
 	ret = processes_patch(&storage, pid, is_just_started, send_fd);
 
+    /**
+     *  释放
+     */
 	storage_free(&storage);
 
 	return ret;
@@ -141,8 +148,7 @@ int cmd_patch_user(int argc, char *argv[])
      *  storage_path = "./foo.kpatch"
      */
 	storage_path = argv[argc - 1];
-	ret = patch_user(storage_path, pid,
-			 /* is_just_started */ 0, /* send_fd */ -1);
+	ret = patch_user(storage_path, pid, /* is_just_started */ 0, /* send_fd */ -1);
 
 out_err:
 	return ret;
@@ -159,7 +165,8 @@ processes_unpatch(int pid, char *buildids[], int nbuildids)
 		.nbuildids = nbuildids
 	};
 
-	return processes_do(pid, process_unpatch, &data);
+//	return processes_do(pid, process_unpatch, &data);
+	return process_unpatch(pid, &data);
 }
 
 static int usage_unpatch(const char *err)
@@ -804,6 +811,9 @@ cmd_server(int argc, char *argv[])
 /*****************************************************************************
  * Utilities.
  ****************************************************************************/
+/**
+ *  
+ */
 static int
 processes_do(int pid, callback_t callback, void *data)
 {
@@ -819,6 +829,10 @@ processes_do(int pid, callback_t callback, void *data)
 		return callback(pid, data);
 
     /**
+     *  设置了 PID， 则下面的代码不执行
+     */
+    
+    /**
      *  打开 /proc 目录
      */
 	dir = opendir("/proc");
@@ -827,6 +841,9 @@ processes_do(int pid, callback_t callback, void *data)
 		return -1;
 	}
 
+    /**
+     *  为每个子进程 设置
+     */
 	while ((de = readdir(dir))) {
 		if (de->d_name[0] == '.')
 			continue;

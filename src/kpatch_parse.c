@@ -117,6 +117,52 @@ static int find_ctype(kpstr_t *t)
 	return -1;
 }
 
+void print_parse_ctype(char *origs, int type)
+{
+#define __CASE(e) \
+    case e: \
+        fprintf(stderr, "<%s> \t\t %s.\n", origs, #e); \
+        break;
+
+    switch(type) {
+    __CASE(DIRECTIVE_ALIGN      );
+    __CASE(DIRECTIVE_TYPE	    );	
+    __CASE(DIRECTIVE_COMM		);
+    __CASE(DIRECTIVE_WEAK		);
+    __CASE(DIRECTIVE_SIZE		);
+    __CASE(DIRECTIVE_LABEL		);
+    __CASE(DIRECTIVE_LOCAL_LABEL	);
+
+    __CASE(DIRECTIVE_GLOBL		);
+    __CASE(DIRECTIVE_LOCAL		);
+    __CASE(DIRECTIVE_HIDDEN	);
+    __CASE(DIRECTIVE_PROTECTED	);
+    __CASE(DIRECTIVE_INTERNAL	);
+
+    __CASE(DIRECTIVE_TEXT		);
+    __CASE(DIRECTIVE_DATA		);
+    __CASE(DIRECTIVE_BSS		);
+
+    __CASE(DIRECTIVE_SECTION	);
+    __CASE(DIRECTIVE_PUSHSECTION	);
+    __CASE(DIRECTIVE_POPSECTION	);
+    __CASE(DIRECTIVE_SUBSECTION	);
+    __CASE(DIRECTIVE_PREVIOUS	);
+
+    __CASE(DIRECTIVE_COMMENT	);
+    __CASE(DIRECTIVE_SET		);
+
+    __CASE(DIRECTIVE_OTHER		);
+
+    __CASE(DIRECTIVE_KPFLAGS	);
+
+    default:
+        fprintf(stderr, "%s is not recoginized.\n", origs);
+    }
+#undef __CASE
+
+}
+
 /**
  *  解析 源文件中的 格式
  */
@@ -133,8 +179,10 @@ int parse_ctype(char *origs, bool with_checks)
     /**
      *  注释行
      */
-	if (s[0] == '#')
+	if (s[0] == '#') {
+        
 		return DIRECTIVE_COMMENT;		/* Single-line comment */
+    }
 
     /**
      *  
@@ -172,8 +220,11 @@ int is_sect_cmd(struct kp_file *f, int l)
 		t == DIRECTIVE_PREVIOUS || t == DIRECTIVE_SUBSECTION;
 }
 
-/* break manually crafted multiple statements separated by ; to separate lines */
-void init_multilines(struct kp_file *f)
+/**
+ *  break manually crafted multiple statements separated by ; to separate lines 
+ *  中断手动制作的多个语句，以 ; 分隔 分隔线
+ */
+void init_multilines(struct kp_file *f, const char *outputfile)
 {
     debug_log("name = %s\n", f->basename);
     
@@ -181,12 +232,18 @@ void init_multilines(struct kp_file *f)
 	char **lines = NULL, *s, *se;
 	int *lines_num = NULL;
 	kpstr_t t;
+    FILE *outputfp = NULL;
+
+    if(outputfile) {
+        outputfp = fopen(outputfile, "w");
+    }
+    
     /**
      *  
      */
 	nr = 0;
     /**
-     *  
+     *  这是一个过滤的工作，基本上没什么变化
      */
 	for (i = 0; i < f->nr_lines; i++) {
 		if (nr + 1000 >= sz || !lines) {
@@ -197,8 +254,11 @@ void init_multilines(struct kp_file *f)
 
 		s = f->lines[i];
 		if (strpbrk(s, ";:") != NULL) {
+            /**
+             *  
+             */
 			while (s && *s) {
-                debug_log("s = %s\n", s);
+//                debug_log("s = %s\n", s);
                 /**
                  *  顶头的 .LXX main 等...
                  */
@@ -231,6 +291,19 @@ void init_multilines(struct kp_file *f)
 					first_token = 0;
 				}
 				lines[nr] = strndup(s, slen);
+                
+                //>>> .LC0:
+                //>>> print_hello:
+                //>>> .LFB0:
+                //>>> .LFE0:
+                //>>> main:
+                //>>> .LFB1:
+                //>>> .L3:
+                //>>> .LFE1:
+                //>>> 	.ident	"GCC: (GNU) 8.4.1 20200928 (Red Hat 8.4.1-1)"                
+                fprintf(stderr, "%s\n", lines[nr]);
+                if(outputfp)
+                    fprintf(outputfp, "%s\n", lines[nr]);
 				s = se;
 				lines_num[nr] = i;
 				nr++;
@@ -244,10 +317,19 @@ done:
              *  保存这个 节
              */
 			lines[nr] = s;
+            //>>> .L3:
+            //>>>>>> 	call	print_hello
+            //>>>>>> 	movl	$1, %edi
+            //>>>>>> 	call	sleep
+            //>>>>>> 	jmp	.L3            
+            fprintf(stderr, "%s\n", lines[nr]);
+            if(outputfp)
+                fprintf(outputfp, "%s\n", lines[nr]);
 			lines_num[nr] = i;
 			nr++;
 		}
 	}
+    
 	free(f->lines);
 	f->lines = lines;
 	f->lines_num = lines_num;
@@ -269,8 +351,9 @@ void init_ctypes(struct kp_file *f)
         /**
          *  
          */
-        debug_log("cline(f, %d) = %s\n", i, cline(f, i));
+//        debug_log("cline(f, %d) = %s\n", i, cline(f, i));
 		f->ctype[i] = parse_ctype(cline(f, i), true);
+        print_parse_ctype(cline(f, i), f->ctype[i]);
 	}
 }
 
@@ -550,9 +633,14 @@ void cblocks_init(struct kp_file *f)
         //.LC0
 		else if (is_variable_start(f, i, NULL, NULL, &nm))
 			init_var_block(f, &i, &nm);
-        
+        /**
+         *  
+         */
 		else if (ctype(f, i) == DIRECTIVE_SET)
 			init_set_block(f, &i, &nm);
+        /**
+         *  
+         */
 		else if (ctype(f, i) == DIRECTIVE_WEAK || ctype(f, i) == DIRECTIVE_GLOBL)
 			/* sometimes .globl memcmp can be found in the middle of asm file... */
 			init_attr_block(f, &i);
@@ -596,7 +684,12 @@ struct cblock *cblock_skip(struct cblock *blk, int type)
 
 /* --------------------------------------------- sections handling ----------------------------------------------- */
 
-/* by default outname for all executable sections is .kpatch.text and .kpatch.data otherwise */
+/**
+ *  by default outname for all executable sections 
+ *  is .kpatch.text and .kpatch.data otherwise 
+ *
+ *  预定义的一些 section 节
+ */
 static struct section_desc predefined_sections[] = {
 	{.name = ".bss"},
 	{.name = ".data"},
@@ -737,7 +830,11 @@ static struct section_desc *parse_section(struct kp_file *f, int l)
 	int t;
 	struct section_desc *cur = f->section[l - 1], *new;
 
+    /**
+     *  按照每一行进行解析
+     */
 	t = ctype(f, l);
+//    print_parse_ctype(f->lines[l], t);
 	switch (t) {
 		case DIRECTIVE_TEXT: return dup_section(find_section(".text"));
 		case DIRECTIVE_DATA: return dup_section(find_section(".data"));
@@ -769,6 +866,7 @@ void init_sections(struct kp_file *f)
      *  将所有的 section 添加至 红黑树里
      */
 	if (rb_empty(&sections_rbroot_byname))
+        //预定义的一些节 section 添加到红黑树
 		for (i = 0; predefined_sections[i].name; i++) {
 			rb_insert_node(&sections_rbroot_byname, &predefined_sections[i].rbnm, section_name_cmp, (unsigned long)predefined_sections[i].name);
             info_log("insert section: %s\n", predefined_sections[i].name);
@@ -788,11 +886,19 @@ void init_sections(struct kp_file *f)
     for (i = 1; i < f->nr_lines; i++) {
 		sect = parse_section(f, i);
 		if (sect) {
+            /**
+             *  section
+             */
 			sect->prev = f->section[i - 1];
 			f->section[i] = sect;
 		} else {
+            /**
+             *  属于上一个 section
+             */
 			f->section[i] = f->section[i - 1];
 		}
+//        sect = (struct section_desc *)f->section[i];
+//        print_parse_ctype(f->lines[i], sect->type);
 	}
 }
 
@@ -801,7 +907,7 @@ void init_sections(struct kp_file *f)
 int is_function_start(struct kp_file *f, int l, kpstr_t *nm)
 {
     
-    debug_log("\n");
+//    debug_log("\n");
 	char *s;
 	kpstr_t nm2, attr;
 	int l0 = l, func = 0;

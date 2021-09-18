@@ -2,6 +2,9 @@
 #define __KPATCH_COMMON__
 
 struct kp_file {
+    /**
+     *  补丁文件 mmap 的返回值
+     */
 	struct kpatch_file *patch;
 	ssize_t size;
 };

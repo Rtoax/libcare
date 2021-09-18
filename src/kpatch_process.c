@@ -65,6 +65,9 @@ vm_area_same(struct vm_area *a, struct vm_area *b)
 		(a->prot == b->prot));
 }
 
+/**
+ *  
+ */
 static int
 object_add_vm_area(struct object_file *o,
 		   struct vm_area *vma,
@@ -74,24 +77,49 @@ object_add_vm_area(struct object_file *o,
 
 	if (o->previous_hole == NULL)
 		o->previous_hole = hole;
+
+    /**
+     *  
+     */
 	list_for_each_entry(ovma, &o->vma, list) {
+	    /**
+         *  如果 VMA 相同，直接返回就行了
+         */
 		if (vm_area_same(vma, &ovma->inmem))
 			return 0;
 	}
 	ovma = malloc(sizeof(*ovma));
 	if (!ovma)
 		return -1;
+    /**
+     *  
+     */
 	memset(ovma, 0, sizeof(*ovma));
 	ovma->inmem = *vma;
-	list_add(&ovma->list, &o->vma);
+    
+    /**
+     *  /proc/PID/maps 中的各个内存段
+     */
+    info_log("VMA add inmem  %016lx-%016lx\n", ovma->inmem.start, ovma->inmem.end);
+    info_log("VMA add inelf  %016lx-%016lx\n", ovma->inelf.start, ovma->inelf.end);
+    info_log("VMA add ondisk %016lx-%016lx\n", ovma->ondisk.start, ovma->ondisk.end);
+    /**
+     *  添加到链表
+     */
+    list_add(&ovma->list, &o->vma);
 	return 0;
 }
 
+/**
+ *  
+ */
 static struct object_file *
 process_new_object(kpatch_process_t *proc,
-		   dev_t dev, int inode,
-		   const char *name, struct vm_area *vma,
-		   struct vm_hole *hole)
+            		   dev_t dev, 
+            		   int inode,
+            		   const char *name, 
+            		   struct vm_area *vma,
+            		   struct vm_hole *hole)
 {
 	struct object_file *o;
 
@@ -102,6 +130,9 @@ process_new_object(kpatch_process_t *proc,
 		kpdebug("FAIL\n");
 		return NULL;
 	}
+    /**
+     *  初始化链表
+     */
 	list_init(&o->list);
 	list_init(&o->vma);
 	o->proc = proc;
@@ -112,6 +143,12 @@ process_new_object(kpatch_process_t *proc,
 	o->jmp_table = NULL;
 
 	o->previous_hole = hole;
+
+    /**
+     *  /proc/PID/maps 中的各个内存段
+     *  vma 和 hole 必须属于 maps 
+     *  
+     */
 	if (object_add_vm_area(o, vma, hole) < 0) {
 		kplogerror("can't add vm_area for %s\n", name);
 		free(o);
@@ -133,6 +170,9 @@ process_new_object(kpatch_process_t *proc,
 	o->ndynsyms = 0;
 	o->dynsymnames = NULL;
 	init_kp_file(&o->kpfile);
+    /**
+     *  添加到链表
+     */
 	list_add(&o->list, &proc->objs);
 	proc->num_objs++;
 	kpdebug("OK\n");
@@ -146,6 +186,9 @@ process_new_object(kpatch_process_t *proc,
 #define	ELFMAG		"\177ELF"
 #define SELFMAG		4
 
+/**
+ *  
+ */
 static int
 process_get_object_type(kpatch_process_t *proc,
 			struct vm_area *vma,
@@ -158,28 +201,48 @@ process_get_object_type(kpatch_process_t *proc,
 	if (bufsize < sizeof(struct kpatch_file)) {
 		return -1;
 	}
-
+    /**
+     *  如果是匿名 ，并且权限对应，空间合适，
+     *  我们就把他当做 kpatch 空间，后续将使用
+     */
 	if (!strcmp(name, "[anonymous]") &&
 	    vma->prot == (PROT_READ | PROT_WRITE | PROT_EXEC) &&
 	    (vma->end - vma->start) >= sizeof(struct kpatch_file))
 		type = OBJECT_KPATCH;
 
+    /**
+     *  从内存读取 VMA 对应的内存 - 使用 pread 从 /proc/PID/mem 中读取
+     */
 	ret = kpatch_process_mem_read(proc,
-				      vma->start,
-				      buf,
-				      bufsize);
+            				      vma->start,
+            				      buf,
+            				      bufsize);
 	if (ret <= SELFMAG)
 		return -1;
 
+    /**
+     *  如果是 [匿名] 在之前被标记为 kpatch，那么这里进行 比对
+     */
 	if (type == OBJECT_KPATCH) {
+        /**
+         *  这是啥时候 装载进内存里面的？
+         */
 		struct kpatch_file *pkpfile = (struct kpatch_file *)buf;
 
+        /**
+         *  对比 魔术 是否匹配
+         */
+        warn_log("get  OBJECT_KPATCH\n");
 		if (!strcmp(pkpfile->magic, KPATCH_FILE_MAGIC1)) {
 			sprintf(name, "[kpatch-%s]", pkpfile->uname);
+            warn_log("magic matched, %s \n", name);
 			return type;
 		}
 	}
 
+    /**
+     *  开头是 "ELF" 文件标志，那么认定为 ELF 目标
+     */
 	if (!memcmp(buf, ELFMAG, SELFMAG)) {
 		type = OBJECT_ELF;
 	} else {
@@ -202,67 +265,112 @@ process_add_object_vma(kpatch_process_t *proc,
 	unsigned char header_buf[1024];
 	struct object_file *o;
 
+    /**
+     *  首先查看这个 vma 的 obj 类型， kpatch, ELF, unknown
+     */
 	object_type = process_get_object_type(proc,
-					      vma,
-					      name,
-					      header_buf,
-					      sizeof(header_buf));
-
+                					      vma,
+                					      name,
+                					      header_buf,
+                					      sizeof(header_buf));
+    /**
+     *  如果不是 kpatch
+     */
 	if (object_type != OBJECT_KPATCH) {
 		/* Is not a kpatch, look if this is a vm_area of an already
 		 * enlisted object.
 		 */
 		list_for_each_entry_reverse(o, &proc->objs, list) {
+		    /**
+             *  如果已经存在于链表中
+             */
 			if ((dev && inode && o->dev == dev &&
 			     o->inode == inode) ||
 			    (dev == 0 && !strcmp(o->name, name))) {
+			    /**
+                 *  
+                 *  将 /proc/PID/maps 中的 VMA 添加到链表
+                 */
 				return object_add_vm_area(o, vma, hole);
 			}
 		}
 	}
 
+    /**
+     *  如果这个 VMA 不存在链表中，将其添加 
+     */
 	o = process_new_object(proc, dev, inode, name, vma, hole);
 	if (o == NULL)
 		return -1;
 
+    /**
+     *  如果类型为 kpatch
+     *  这会在 unpatch 过程中成立
+     */
 	if (object_type == OBJECT_KPATCH) {
+        debug_log("object_type == OBJECT_KPATCH\n");
 		struct kpatch_file *patch;
-
+        /**
+         *  分配内存
+         */
 		patch = malloc(sizeof(header_buf));
 		if (patch == NULL)
 			return -1;
-
+        /**
+         *  将这个 header 拷贝到 patch 中
+         */
 		memcpy(patch, header_buf, sizeof(header_buf));
+        /**
+         *  将其添加至 object file
+         */
 		o->kpfile.patch = patch;
 		o->kpfile.size = vma->end - vma->start;
 
 		o->is_patch = 1;
-	} else if (object_type == OBJECT_ELF) {
+    
+	}
+    /**
+     *  patch 和 unpatch 过程都会进入这个分支
+     */
+    else if (object_type == OBJECT_ELF) {
+        debug_log("object_type == OBJECT_ELF\n");
 		o->is_elf = 1;
+        /**
+         *  设置 ELF 程序头 - 直接拷贝
+         */
 		rv = kpatch_elf_object_set_ehdr(o,
-						header_buf,
-						sizeof(header_buf));
+                						header_buf,
+                						sizeof(header_buf));
 		if (rv < 0)
 			kperr("unable to kpatch_elf_object_set_ehdr\n");
 	}
+    /**
+     *  
+     */
 
 	return 0;
 }
 
+/**
+ *  映射 ELF segment
+ */
 static int
 object_map_elf_segments(struct object_file *o)
 {
 	int ret;
 
     /**
-     *  
+     *  如果是内核 的 obj
      */
 	if (is_kernel_object_name(o->name))
 		return 0;
 
 	kpdebug("Populating object %x:%lu (%s)...", (unsigned int)o->dev,
-		o->inode, o->name);
+		    o->inode, o->name);
 
+    /**
+     *  只能解析 ELF
+     */
 	if (!o->is_elf) {
 		kpdebug("File is not an ELF, ignoring...\n");
 		return 0;
@@ -270,16 +378,20 @@ object_map_elf_segments(struct object_file *o)
 
 	kpdebug("Populating ondisk ELF segments for '%s'...", o->name);
     /**
-     *  
+     *  是否为共享库文件
      */
 	ret = kpatch_elf_object_is_shared_lib(o);
 	if (ret < 0) {
 		kperr("can't process ELF file\n");
 		return -1;
 	}
-	o->is_shared_lib = ret;
     /**
-     *  
+     *  这是一个共享库
+     */
+	o->is_shared_lib = ret;
+    
+    /**
+     *  解析 ELF 程序头
      */
 	ret = kpatch_elf_parse_program_header(o);
 	if (ret < 0)
@@ -325,27 +437,36 @@ object_destroy(struct object_file *o)
 	(p & PROT_WRITE) ? 'w' : '-', \
 	(p & PROT_EXEC) ? 'e' : '-'
 
+/**
+ *  
+ */
 void
 kpatch_object_dump(struct object_file *o)
 {
+    debug_log("\n");
+    
 	struct obj_vm_area *ovma;
 	char *patchinfo;
 
-	if (log_level < LOG_INFO)
-		return;
+#define _kpdebug(fmt...) fprintf(stderr, fmt)
+//	if (log_level < LOG_INFO)
+//		return;
 
 	if (o->applied_patch)
 		patchinfo = o->applied_patch->name;
 	else
 		patchinfo = o->skpfile != NULL ? "yes" : "no";
 
-	kpdebug("Object '%s' (%lx:%ld), patch: %s\n",
+	_kpdebug("Object '%s' (%lx:%ld), patch: %s\n",
 		o->name, o->dev, o->inode, patchinfo);
-	kpdebug("VM areas:\n");
-	list_for_each_entry(ovma, &o->vma, list)
-		kpdebug("  inmem: %08lx-%08lx "PROT_FMT", ondisk: %08lx-%08lx "PROT_FMT"\n",
+	_kpdebug("VM areas:\n");
+	list_for_each_entry(ovma, &o->vma, list) {
+		_kpdebug("  inmem: %08lx-%08lx "PROT_FMT", ondisk: %08lx-%08lx "PROT_FMT"\n",
 			ovma->inmem.start, ovma->inmem.end, PROT_ARGS(ovma->inmem.prot),
 			ovma->ondisk.start, ovma->ondisk.end, PROT_ARGS(ovma->ondisk.prot));
+    }
+#undef _kpdebug
+
 }
 
 static unsigned int
@@ -363,6 +484,9 @@ perms2prot(char *perms)
 	return prot;
 }
 
+/**
+ *  
+ */
 static struct vm_hole *
 process_add_vm_hole(kpatch_process_t *proc,
 		    unsigned long hole_start,
@@ -377,38 +501,75 @@ process_add_vm_hole(kpatch_process_t *proc,
 	hole->start = hole_start;
 	hole->end = hole_end;
 
+    /**
+     *  添加至链表
+     */
 	list_add(&hole->list, &proc->vmaholes);
 
 	return hole;
 }
 
+/**
+ *  改函数在 UNpatch 时候才会使用
+ */
 int
 kpatch_process_associate_patches(kpatch_process_t *proc)
 {
 	struct object_file *o, *objpatch;
 	size_t found = 0;
 
+    /**
+     *  获取这个 patch
+     */
 	list_for_each_entry(objpatch, &proc->objs, list) {
 
+        /**
+         *  只处理 patch 文件，在 第一次patch过程中才会查到这个patch，或者非第一次patch过程中成立
+         */
 		if (!objpatch->is_patch)
 			continue;
 
+        /**
+         *  
+         */
 		list_for_each_entry(o, &proc->objs, list) {
 			const char *bid;
 			struct obj_vm_area *patchvma;
 
+            /**
+             *  获取 BuildID
+             */
 			bid = kpatch_get_buildid(o);
+            /**
+             *  这个程序的 BuildID 和 patch 的 BuildID必须相同
+             */
 			if (o->applied_patch != NULL || bid == NULL ||
 			    strcmp(bid, objpatch->kpfile.patch->uname))
 				continue;
 
+            /**
+             *  
+             */
 			o->applied_patch = objpatch;
+            /**
+             *  这个补丁 的 VMA 地址
+             */
 			patchvma = list_first_entry(&objpatch->vma,
-						    struct obj_vm_area,
-						    list);
+            						    struct obj_vm_area,
+            						    list);
+
+            /**
+             *  补丁在目标 进程地址空间的 虚拟地址
+             */
 			o->kpta = patchvma->inmem.start;
+            
+            /**
+             *  补丁文件
+             */
 			o->kpfile = objpatch->kpfile;
 
+            debug_log("PATCH: o->kpta = %016lx\n", o->kpta);
+        
 			found++;
 			break;
 		}
@@ -417,6 +578,9 @@ kpatch_process_associate_patches(kpatch_process_t *proc)
 	return found;
 }
 
+/**
+ *  解析 /proc/PID/maps
+ */
 int
 kpatch_process_parse_proc_maps(kpatch_process_t *proc)
 {
@@ -431,13 +595,17 @@ kpatch_process_parse_proc_maps(kpatch_process_t *proc)
 	 * 3. If we have at least one patch, create files for all
 	 *    of the object (we might have references to them
 	 *    in the patch).
+	 *
+	 * /proc/PID/maps
 	 */
 	fd = dup(proc->fdmaps);
 	if (fd < 0) {
 		kperr("unable to dup fd %d\n", proc->fdmaps);
 		return -1;
 	}
-
+    /**
+     *  从头 读取 /proc/PID/maps 文件
+     */
 	lseek(fd, 0, SEEK_SET);
 	f = fdopen(fd, "r");
 	if (f == NULL) {
@@ -446,6 +614,9 @@ kpatch_process_parse_proc_maps(kpatch_process_t *proc)
 		return -1;
 	}
 
+    /**
+     *  从文件 /proc/PID/maps 中 scan 
+     */
 	do {
 		struct vm_area vma;
 		char line[1024];
@@ -454,40 +625,80 @@ kpatch_process_parse_proc_maps(kpatch_process_t *proc)
 		char perms[5], name_[256], *name = name_;
 		int r;
 
+        /**
+         *  读完了 退出
+         */
 		if (!fgets(line, sizeof(line), f))
 			break;
+        /**
+         *  scan 扫描 /proc/PID/maps 中的一行
+         *  7f153144b000-7f1531477000 r-xp 00000000 fd:00 67110118 /usr/lib64/ld-2.28.so
+         */
 		r = sscanf(line, "%lx-%lx %s %lx %x:%x %d %255s",
 			   &start, &end, perms, &offset,
 			   &maj, &min, &inode, name_);
+        /**
+         *  如果
+         *  7f1531447000-7f153144b000 rw-p 00000000 00:00 0 
+         *  就给个初始值
+         */
 		if (r != 8)
 			strcpy(name, "[anonymous]");
 
+        /**
+         *  赋值
+         *  /proc/PID/maps 中的一行 都叫做一个 VMA
+         */
 		vma.start = start;
 		vma.end = end;
 		vma.offset = offset;
 		vma.prot = perms2prot(perms);
 
-
+        /**
+         *  大于两个 page 大小的，前后都间隔出 一个 page
+         */
 		/* Hole must be at least 2 pages for guardians */
 		if (start - hole_start > 2 * PAGE_SIZE) {
+            /**
+             *  前后都预留一个page
+             */
 			hole = process_add_vm_hole(proc,
-						   hole_start + PAGE_SIZE,
-						   start - PAGE_SIZE);
+            						   hole_start + PAGE_SIZE,
+            						   start - PAGE_SIZE);
 			if (hole == NULL)
 				goto error;
 		}
 		hole_start = end;
 
+        /**
+         *  如果是绝对地址，那么只保留 文件名
+         */
 		name = name[0] == '/' ? basename(name) : name;
 
+        /**
+         *  
+         */
 		ret = process_add_object_vma(proc, makedev(maj, min),
 					     inode, name, &vma, hole);
 		if (ret < 0)
 			goto error;
 
+        /**
+         *  如果 这个 vma 是 libc 
+         *  cat /proc/PID/maps
+         *  [...]
+         *  7f9070b06000-7f9070cc2000 r-xp 00000000 fd:00 67110125 /usr/lib64/libc-2.28.so
+         *  7f9070cc2000-7f9070ec1000 ---p 001bc000 fd:00 67110125 /usr/lib64/libc-2.28.so
+         *  7f9070ec1000-7f9070ec5000 r--p 001bb000 fd:00 67110125 /usr/lib64/libc-2.28.so
+         *  7f9070ec5000-7f9070ec7000 rw-p 001bf000 fd:00 67110125 /usr/lib64/libc-2.28.so
+         *  [...]
+         */
 		if (!is_libc_base_set &&
 		    !strncmp(basename(name), "libc", 4) &&
 		    vma.prot & PROT_EXEC) {
+		    /**
+		     *  只设置第一次 libc
+		     */
 			proc->libc_base = start;
 			is_libc_base_set = 1;
 		}
@@ -495,6 +706,9 @@ kpatch_process_parse_proc_maps(kpatch_process_t *proc)
 	} while (1);
 	fclose(f);
 
+    /**
+     *  必须 有 "libc" 这块的映射
+     */
 	if (!is_libc_base_set) {
 		kperr("Can't find libc_base required for manipulations: %d\n",
 		      proc->pid);
@@ -510,6 +724,9 @@ error:
 	return -1;
 }
 
+/**
+ *  映射目标文件
+ */
 int
 kpatch_process_map_object_files(kpatch_process_t *proc)
 {
@@ -517,7 +734,7 @@ kpatch_process_map_object_files(kpatch_process_t *proc)
 	int ret;
 
     /**
-     *  
+     *  解析 /proc/PID/maps
      */
 	ret = kpatch_process_parse_proc_maps(proc);
 	if (ret < 0)
@@ -527,12 +744,18 @@ kpatch_process_map_object_files(kpatch_process_t *proc)
      *  
      */
 	list_for_each_entry(o, &proc->objs, list) {
+	    /**
+         *  映射 ELF segment
+         */
 		ret = object_map_elf_segments(o);
 		if (ret)
 			return -1;
 	}
 
     /**
+     *  遍历程序地址空间，
+     *  在 patch 过程中，这个函数的if 流程不成立
+     *  在 UNpatch 过程中会找到 patch 补丁的地址
      *  
      */
 	ret = kpatch_process_associate_patches(proc);
@@ -571,6 +794,9 @@ process_detach(kpatch_process_t *proc)
 	}
 }
 
+/**
+ *  是否为多线程的 进程，返回线程数
+ */
 static int
 process_list_threads(kpatch_process_t *proc,
 		     int **ppids,
@@ -640,6 +866,9 @@ process_has_thread_pid(kpatch_process_t *proc, int pid)
 	return 0;
 }
 
+/**
+ *  打开 /proc/PID/mem 文件
+ */
 int
 kpatch_process_mem_open(kpatch_process_t *proc, int mode)
 {
@@ -650,6 +879,9 @@ kpatch_process_mem_open(kpatch_process_t *proc, int mode)
 	}
 
 	snprintf(path, sizeof(path), "/proc/%d/mem", proc->pid);
+    /**
+     *  打开
+     */
 	proc->memfd = open(path, mode == MEM_WRITE ? O_RDWR : O_RDONLY);
     debug_log("open %s\n", path);
     
@@ -661,19 +893,28 @@ kpatch_process_mem_open(kpatch_process_t *proc, int mode)
 	return 0;
 }
 
+/**
+ *  查找补丁，并使用 ptrace() attach
+ */
 int
 kpatch_process_attach(kpatch_process_t *proc)
 {
 	int *pids = NULL, ret;
 	size_t i, npids = 0, alloc = 0, prevnpids = 0, nattempts;
 
+    /**
+     *  打开 /proc/PID/mem 文件
+     */
 	if (kpatch_process_mem_open(proc, MEM_WRITE) < 0)
 		return -1;
 
+    /**
+     *  尝试次数
+     */
 	for (nattempts = 0; nattempts < max_attach_attempts; nattempts++) {
         /**
          *  获取目录 /proc/%d/task 中所有线程 PID
-         *  是否为多线程应用
+         *  是否为多线程应用 - 返回线程数
          */
 		ret = process_list_threads(proc, &pids, &npids, &alloc);
 		if (ret == -1)
@@ -700,7 +941,7 @@ kpatch_process_attach(kpatch_process_t *proc)
 		}
 
         /**
-         *  
+         *  遍历所有线程 ID
          */
 		for (i = prevnpids; i < npids; i++) {
 			int pid = pids[i];
@@ -725,7 +966,7 @@ kpatch_process_attach(kpatch_process_t *proc)
 	}
 
     /**
-     *  
+     *  不应该尝试这么多次
      */
 	if (nattempts == max_attach_attempts) {
 		kperr("unable to catch up with process, bailing\n");
@@ -739,9 +980,11 @@ kpatch_process_attach(kpatch_process_t *proc)
 
 	free(pids);
 
+    /**
+     *  TODO
+     */
 	if (proc->ptrace.unwd == NULL) {
-		proc->ptrace.unwd = unw_create_addr_space(&_UPT_accessors,
-							  __LITTLE_ENDIAN);
+		proc->ptrace.unwd = unw_create_addr_space(&_UPT_accessors, __LITTLE_ENDIAN);
 		if (!proc->ptrace.unwd) {
 			kperr("Can't create libunwind address space\n");
 			goto detach;
@@ -1171,6 +1414,7 @@ kpatch_process_init(kpatch_process_t *proc,
 		    int send_fd)
 {
 	int fdmaps;
+    
     // open "/proc/%d/maps"
 	fdmaps = lock_process(pid);
 	if (fdmaps < 0)
@@ -1178,21 +1422,35 @@ kpatch_process_init(kpatch_process_t *proc,
 
 	memset(proc, 0, sizeof(*proc));
 
+    /**
+     *  赋值
+     */
 	proc->pid = pid;
 	proc->fdmaps = fdmaps;
 	proc->is_just_started = is_just_started;
 	proc->send_fd = send_fd;
 	proc->memfd = -1;
 
+    /**
+     *  初始化链表
+     */
 	list_init(&proc->ptrace.pctxs);
 	list_init(&proc->objs);
 	list_init(&proc->vmaholes);
+
+    /**
+     *  
+     */
 	proc->num_objs = 0;
 
-    //comm
+    //comm - 获取进程名
 	if (process_get_comm(proc))
 		goto out_unlock;
+    
     //
+    /**
+     *  unwind create TODO
+     */
 	if (kpatch_coroutines_init(proc))
 		goto out_unlock;
 

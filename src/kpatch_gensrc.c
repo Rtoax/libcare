@@ -1666,7 +1666,7 @@ int main(int argc, char **argv)
 		if (k < 1)
 			kpfatal("input file must be specified\n");
 
-		init_multilines(&infile[0]);
+		init_multilines(&infile[0], NULL);
 		debug_filter(&infile[0], &outfile, dbgfilter_options);
 		close_file(&outfile);
 		return 0;
@@ -1676,26 +1676,42 @@ int main(int argc, char **argv)
 		kpfatal("2 input files must be specified\n");
 
     /**
+     *  将 代码中的 ; 行 进行处理
+     *  基本上没什么变化 - 简直是一模一样
+     */
+	init_multilines(&infile[0], "ofile1.s");	
+    init_multilines(&infile[1], "ofile2.s");
+    
+    /**
+     *  分析源文件中的每一行是什么类型， section 还是 label 等
+     */
+	init_ctypes(&infile[0]);	
+    init_ctypes(&infile[1]);
+    
+    /**
+     *  源文件每一行属于哪个 section
+     */
+	init_sections(&infile[0]);	
+    init_sections(&infile[1]);
+    
+    /**
      *  
      */
-	init_multilines(&infile[0]);	init_multilines(&infile[1]);
-    /**
-     *  分析源文件中的每一行
-     */
-	init_ctypes(&infile[0]);	init_ctypes(&infile[1]);
-    /**
-     *  
-     */
-	init_sections(&infile[0]);	init_sections(&infile[1]);
-    /**
-     *  
-     */
-	cblocks_init(&infile[0]);	cblocks_init(&infile[1]);
+	cblocks_init(&infile[0]);	
+    cblocks_init(&infile[1]);
 
+    /**
+     *  
+     */
+    dump_kp_file_struct(&infile[0]);
+    dump_kp_file_struct(&infile[1]);
+    
     /**
      *  .LC1:->.LC1.kpatch
      */
 	analyze_var_cblocks(&infile[0], &infile[1]);
+//    dump_kp_file_struct(&infile[0]);
+//    dump_kp_file_struct(&infile[1]);
     
     /**
      *  
@@ -1711,6 +1727,7 @@ int main(int argc, char **argv)
      *  
      */
 	write_cblocks(&infile[0], &infile[1], &outfile);
+//    dump_kp_file_struct(&outfile);
 	close_file(&outfile);
 
 	return 0;

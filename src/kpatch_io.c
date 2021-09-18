@@ -66,8 +66,12 @@ int read_file(struct kp_file *file, char *fname)
 		if (!fgets(buf, BUFSIZE, file->f))
 			break;
 
+        /**
+         *  读取原汇编文件的每一行
+         */
 		trim_crlf(buf);
 		file->lines[file->nr_lines++] = strdup(buf);
+        fprintf(stderr, "%s\n", buf);
 	}
 	file->lines[0] = "";	/* make line with index 0 to be empty, so that our line numbers would match and editor for easier debugging, i.e. we start from index=1 */
 	fclose(file->f);
@@ -91,3 +95,15 @@ void close_file(struct kp_file *file)
 {
 	fclose(file->f);
 }
+
+void dump_kp_file_struct(struct kp_file *file)
+{
+    warn_log("dump kp_file.\n");
+    fprintf(stderr, "===========================\n");
+    fprintf(stderr, "dump %s\n", file->basename);
+    int iline;
+    for(iline=0; iline < file->nr_lines; iline++) {
+        fprintf(stderr, "%s\n", file->lines[iline]);
+    }
+}
+

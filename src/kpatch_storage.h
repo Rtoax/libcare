@@ -24,18 +24,19 @@ struct kpatch_storage_patch {
 };
 
 struct kpatch_storage {
-	/* Patch storage path */
+	/* Patch storage path 补丁路径*/
 	char *path;
 
-	/* Patch file (or directory) descriptor */
+	/* Patch file (or directory) descriptor 补丁文件描述符*/
 	int patch_fd;
 
-	/* Is patch_fd a directory or a file? */
+	/* Is patch_fd a directory or a file? 是一个文件夹*/
 	char is_patch_dir;
 
 	union {
 		/* Tree with BuildID keyed `kp_file's,
-		 * is_patch_dir = 1 */
+		 * is_patch_dir = 1  当时文件夹的时候，用红黑树存放
+		 */
 		struct rb_root tree;
 
 		/* A single file, is_patch_dir = 0 */

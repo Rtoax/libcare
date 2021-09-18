@@ -12,6 +12,9 @@ enum {
 };
 
 struct patch_data {
+    /**
+     *  补丁文件
+     */
 	kpatch_storage_t *storage;
 	int is_just_started;
 	int send_fd;

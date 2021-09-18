@@ -145,12 +145,18 @@ patch_verify_safety(struct object_file *o,
 
 		kpdebug("Verifying safety for coroutine %zd...\n", count);
 		kpinfo("Stacktrace to verify safety for coroutine %zd:\n", count);
+        /**
+         *  
+         */
 		ucoro = _UCORO_create(c, proc2pctx(o->proc)->pid);
 		if (!ucoro) {
 			kplogerror("can't create unwind coro context\n");
 			return -1;
 		}
 
+        /**
+         *  利用“远程”程序堆栈为unw_cursor_t指针进行初始化
+         */
 		ret = unw_init_remote(&cur, o->proc->coro.unwd, ucoro);
 		if (ret) {
 			kplogerror("can't create unwind remote context\n");
@@ -322,16 +328,30 @@ patch_apply_hunk(struct object_file *o, size_t nhunk)
 	return ret ? -1 : 0;
 }
 
+/**
+ *  
+ */
 static int
 duplicate_kp_file(struct object_file *o)
 {
 	struct kpatch_file *patch;
 
+    /**
+     *  拷贝一份patch 文件
+     */
 	patch = malloc(o->skpfile->size);
 	if (patch == NULL)
 		return -1;
+    
+    /**
+     *  
+     */
     info_log("dup kpatch file size: %d\n", o->skpfile->size);
 	memcpy(patch, o->skpfile->patch, o->skpfile->size);
+
+    /**
+     *  拷贝一份 patch
+     */
 	o->kpfile.patch = patch;
 	o->kpfile.size = o->skpfile->size;
 
@@ -339,7 +359,7 @@ duplicate_kp_file(struct object_file *o)
 }
 
 /**
- *  
+ *  应用补丁
  */
 static int
 object_apply_patch(struct object_file *o)
@@ -361,7 +381,7 @@ object_apply_patch(struct object_file *o)
 	}
 
     /**
-     *  
+     *  拷贝一份patch file
      */
 	ret = duplicate_kp_file(o);
 	if (ret < 0) {
@@ -484,6 +504,9 @@ object_apply_patch(struct object_file *o)
 static int
 object_unapply_patch(struct object_file *o, int check_flag);
 
+/**
+ *  取消老补丁
+ */
 static int
 object_unapply_old_patch(struct object_file *o)
 {
@@ -508,6 +531,9 @@ object_unapply_old_patch(struct object_file *o)
 	       o->name,
 	       kpatch_applied->user_level,
 	       kpatch_storage->user_level);
+    /**
+     *  
+     */
 	ret = object_unapply_patch(o, /* check_flag */ 0);
 	if (ret < 0)
 		kperr("can't unapply patch for %s\n", o->name);
@@ -522,7 +548,7 @@ object_unapply_old_patch(struct object_file *o)
 }
 
 /**
- *  
+ *  打补丁
  */
 static int
 kpatch_apply_patches(kpatch_process_t *proc)
@@ -539,15 +565,20 @@ kpatch_apply_patches(kpatch_process_t *proc)
         [kpatch_apply_patches:496] object [vvar]
         [kpatch_apply_patches:496] object [vdso]
         [kpatch_apply_patches:496] object [vsyscall]
+     *
+     *  遍历所有 segment
      */
 	list_for_each_entry(o, &proc->objs, list) {
         warn_log("object %s\n", o->name);
+        /**
+         *  TODO 2021年9月18日 删除后不影响打补丁
+         */
 		ret = object_unapply_old_patch(o);
 		if (ret < 0)
 			break;
 
         /**
-         *  
+         *  应用这个补丁
          */
 		ret = object_apply_patch(o);
 		if (ret < 0)
@@ -571,20 +602,30 @@ unpatch:
 }
 
 /**
- *  
+ *  处理一个补丁
  */
 int process_patch(int pid, void *_data)
 {
 	int ret;
 	kpatch_process_t _proc, *proc = &_proc;
+    /**
+     *  取出 patch
+     */
 	struct patch_data *data = _data;
 
 	kpatch_storage_t *storage = data->storage;
+    /**
+     *  如果: libcare-ctl -v patch -p $(pidof foo) ./foo.kpatch
+     *  is_just_started = 0
+     *  send_fd = -1
+     */
 	int is_just_started = data->is_just_started;
 	int send_fd = data->send_fd;
 
     /**
-     *  
+     *  1. 打开 /proc/PID/maps
+     *  2. 初始化数据结构 proc
+     *  3. unwind TODO
      */
 	ret = kpatch_process_init(proc, pid, is_just_started, send_fd);
 	if (ret < 0) {
@@ -607,23 +648,29 @@ int process_patch(int pid, void *_data)
 	/*
 	 * In case the process was just started we continue execution up to the
 	 * entry point of a program just to allow ld.so to load up libraries
-	 */
-	ret = kpatch_process_load_libraries(proc);
-	if (ret < 0)
-		goto out_free;
+	 *//**
+     *  
+     */
+//	ret = kpatch_process_load_libraries(proc);
+//	if (ret < 0)
+//		goto out_free;
 
 	/*
 	 * In case we got there from startup send_fd != -1.
 	 */
-	ret = kpatch_process_kick_send_fd(proc);
-	if (ret < 0)
-		goto out_free;
+//	ret = kpatch_process_kick_send_fd(proc);
+//	if (ret < 0)
+//		goto out_free;
 
 	/*
 	 * For each object file that we want to patch (either binary itself or
 	 * shared library) we need its ELF structure to perform relocations.
 	 * Because we know uniq BuildID of the object the section addresses
 	 * stored in the patch are valid for the original object.
+	 *
+	 * 我们想打补丁的 每一个目标文件，我们需要它 ELF 结构来执行重定向。
+	 * 应为我们知道唯一的目标 BuildID ，section 地址 
+	 * 
 	 */
 	ret = kpatch_process_map_object_files(proc);
 	if (ret < 0)
@@ -631,25 +678,29 @@ int process_patch(int pid, void *_data)
 
 	/*
 	 * Lookup for patches appicable for proc in storage.
+	 *  在存储中查找适用于 proc 的补丁。 - 对比 BuildID 
 	 */
 	ret = storage_lookup_patches(storage, proc);
 	if (ret <= 0)
 		goto out_free;
 
+    /**
+     *  ptrace() attach
+     */
 	/* Finally, attach to process */
 	ret = kpatch_process_attach(proc);
 	if (ret < 0)
 		goto out_free;
 
     /**
-     *  
+     *  TODO 2021年9月18日
      */
-//	ret = kpatch_coroutines_find(proc);
-//	if (ret < 0)
-//		goto out_free;
+	ret = kpatch_coroutines_find(proc);
+	if (ret < 0)
+		goto out_free;
 
     /**
-     *  
+     *  TODO 2021年9月18日 - 不运行这个函数，也可以进行正常的打补丁
      */
 	ret = storage_execute_before_script(storage, proc);
 	if (ret < 0)
@@ -661,7 +712,7 @@ int process_patch(int pid, void *_data)
 	ret = kpatch_apply_patches(proc);
 
     /**
-     *  
+     *  TODO 2021年9月18日
      */
 	if (storage_execute_after_script(storage, proc) < 0)
 		kperr("after script failed\n");

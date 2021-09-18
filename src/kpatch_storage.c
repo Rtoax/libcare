@@ -149,7 +149,7 @@ void storage_free(kpatch_storage_t *storage)
 	free(storage->path);
 }
 
-static int
+static int __attribute__((unused))
 cmp_buildid(struct rb_node *node, unsigned long key)
 {
 	const char *bid = (const char *)key;
@@ -162,6 +162,9 @@ cmp_buildid(struct rb_node *node, unsigned long key)
 
 #define PATCHLEVEL_TEMPLATE_NUM	0
 
+/**
+ *  
+ */
 static char *pathtemplates[] = {
 	"%s/latest/kpatch.bin",
 	"%s.kpatch"
@@ -188,17 +191,27 @@ readlink_patchlevel(int dirfd, const char *fname)
 	return -1;
 }
 
+/**
+ *  加载
+ */
 static inline int
 storage_open_patch(kpatch_storage_t *storage,
 		   const char *buildid,
 		   struct kpatch_storage_patch* patch)
 {
+    debug_log("\n");
 	char fname[96];
 	int i, rv;
 
 	for (i = 0; i < ARRAY_SIZE(pathtemplates); i++) {
+        /**
+         *  文件名
+         */
 		sprintf(fname, pathtemplates[i], buildid);
 
+        /**
+         *  
+         */
 		rv = kpatch_openat_file(storage->patch_fd, fname, &patch->kpfile);
 		if (rv == 0) {
 			rv = patch_file_verify(&patch->kpfile);
@@ -272,32 +285,63 @@ static struct kpatch_storage_patch *
 storage_get_patch(kpatch_storage_t *storage, const char *buildid,
 		  int load)
 {
-	struct kpatch_storage_patch *patch = NULL;
-	struct rb_node *node;
-	int rv;
+    debug_log("\n");
+	struct kpatch_storage_patch __attribute__((unused)) *patch = NULL;
+	struct rb_node __attribute__((unused)) *node;
+	int __attribute__((unused)) rv;
 
+    /**
+     *  如果补丁不是加载 文件夹 里的补丁
+     */
 	if (!storage->is_patch_dir) {
+        /**
+         *  如果 BuildID 匹配
+         */
 		if (!strcmp(storage->patch.buildid, buildid)) {
+            warn_log("strcmp find patch : buildid = %s\n", buildid);
 			return &storage->patch;
 		}
 		return NULL;
 	}
 
+    err_log("No this patch : buildid = %s\n", buildid);
+    abort();
+    return NULL;
+    
+#if 0
+    debug_log("\n");
+    /**
+     *  从存放 补丁 文件的红黑树种查找此 BuildID 对应的补丁
+     */
 	/* Look here, could be loaded already */
 	node = rb_search_node(&storage->tree, cmp_buildid,
-			      (unsigned long)buildid);
-	if (node != NULL)
+			            (unsigned long)buildid);
+	if (node != NULL) {
+        warn_log("rb_search_node find patch : buildid = %s\n", buildid);
 		return rb_entry(node, struct kpatch_storage_patch, node);
-
+    }
+    debug_log("\n");
+    /**
+     *  分配补丁
+     */
 	/* OK, look at the filesystem */
 	patch = malloc(sizeof(*patch));
 	if (patch == NULL)
 		return ERR_PATCH;
 
+    /**
+     *  
+     */
 	memset(patch, 0, sizeof(*patch));
 	patch->patchlevel = -1;
+    /**
+     *  初始化文件结构
+     */
 	init_kp_file(&patch->kpfile);
 
+    /**
+     *  
+     */
 	if (load)
 		rv = storage_open_patch(storage, buildid, patch);
 	else
@@ -316,6 +360,7 @@ storage_get_patch(kpatch_storage_t *storage, const char *buildid,
 		       (unsigned long)patch->buildid);
 
 	return patch;
+#endif    
 }
 
 int storage_patch_found(struct kpatch_storage_patch *patch)
@@ -323,25 +368,39 @@ int storage_patch_found(struct kpatch_storage_patch *patch)
 	return patch && patch->kpfile.size >= 0;
 }
 
+/**
+ *  查找到对应的 BuildID 对应的 patch
+ */
 static int
 storage_load_patch(kpatch_storage_t *storage, const char *buildid,
 		   struct kp_file **pkpfile)
 {
+    debug_log("\n");
 	struct kpatch_storage_patch *patch = NULL;
 
 	if (pkpfile == NULL) {
 		kperr("pkpfile == NULL\n");
+        err_log("pkpfile == NULL\n");
 		return PATCH_OPEN_ERROR;
 	}
 
+    /**
+     *  
+     */
 	patch = storage_get_patch(storage, buildid, /* load */ 1);
 	if (patch == ERR_PATCH)
 		return PATCH_OPEN_ERROR;
 	if (patch == NULL)
 		return PATCH_NOT_FOUND;
 
+    /**
+     *  获取到 patch 文件
+     */
 	*pkpfile = &patch->kpfile;
 
+    /**
+     *  
+     */
 	return storage_patch_found(patch) ? PATCH_FOUND : PATCH_NOT_FOUND;
 }
 
@@ -421,24 +480,40 @@ err_free:
 	return NULL;
 }
 
+/**
+ *  查找一个 补丁
+ */
 int storage_lookup_patches(kpatch_storage_t *storage, kpatch_process_t *proc)
 {
+    debug_log("called.\n");
 	struct kp_file *pkpfile;
 	struct object_file *o;
 	const char *bid;
 	int found = 0, ret;
 
+    /**
+     *  遍历这个 所有
+     */
 	list_for_each_entry(o, &proc->objs, list) {
+	    /**
+         *  跳过 ELF 文件格式 和 
+         *  
+         */
 		if (!o->is_elf || is_kernel_object_name(o->name))
 			continue;
 
+        /**
+         *  查找到 BUIdID
+         */
 		bid = kpatch_get_buildid(o);
 		if (bid == NULL) {
-			kpinfo("can't get buildid for %s\n",
-			       o->name);
+			kpinfo("can't get buildid for %s\n", o->name);
 			continue;
 		}
 
+        /**
+         *  查找已经加载的 patch文件
+         */
 		ret = storage_load_patch(storage, bid, &pkpfile);
 		if (ret == PATCH_OPEN_ERROR) {
 			if (errno != ENOENT)
@@ -447,6 +522,9 @@ int storage_lookup_patches(kpatch_storage_t *storage, kpatch_process_t *proc)
 			continue;
 		}
 
+        /**
+         *  找到了，赋值，fount ++
+         */
 		if (ret == PATCH_FOUND) {
 			o->skpfile = pkpfile;
 			found++;
@@ -456,9 +534,24 @@ int storage_lookup_patches(kpatch_storage_t *storage, kpatch_process_t *proc)
 	kpinfo("%d object(s) have valid patch(es)\n", found);
 
 	kpdebug("Object files dump:\n");
-	list_for_each_entry(o, &proc->objs, list)
+    /**
+     *  遍历 目标文件
+     *  也就是 /proc/PID/maps 中的各个 segment
+     */
+	list_for_each_entry(o, &proc->objs, list) {
+	    /**
+         *  打印
+        // Object 'ld-2.28.so' (fd00:67110118), patch: no
+        // VM areas:
+        //   inmem: 7fdb559e6000-7fdb55a116b8 r-e, ondisk: 00000000-0002b6b8 r-e
+        //   inmem: 7fdb55c123e0-7fdb55c13000 r--, ondisk: 0002c3e0-0002d000 r--
+        //   inmem: 7fdb55c13000-7fdb55c141d0 rw-, ondisk: 0002d000-0002e018 rw-
+         */
 		kpatch_object_dump(o);
-
+    }
+    /**
+     *  是否找到对应 BuildID 的 patch
+     */
 	return found;
 }
 
@@ -504,6 +597,9 @@ storage_execute_script(kpatch_storage_t *storage,
 	return -rv;
 }
 
+/**
+ *  
+ */
 int storage_execute_before_script(kpatch_storage_t *storage, kpatch_process_t *proc)
 {
 	return storage_execute_script(storage, proc, "before");

@@ -1,9 +1,0 @@
-Dump of assembler code for function print_hello:
-   0x00000000004005d6 <+0>:	jmpq   0x45d445
-   0x00000000004005db <+5>:	test   $0x6,%al
-   0x00000000004005dd <+7>:	add    %bpl,%al
-   0x00000000004005e0 <+10>:	in     (%dx),%al
-   0x00000000004005e1 <+11>:	(bad)  
-   0x00000000004005e2 <+12>:	(bad)  
-   0x00000000004005e3 <+13>:	callq  *0x4855c35d(%rax)
-End of assembler dump.

@@ -11,6 +11,9 @@ struct kpatch_coro_ops {
 	int (*find_coroutines)(struct kpatch_process *proc);
 };
 
+/**
+ *  
+ */
 struct kpatch_coro {
 	struct list_head list;
 	sigjmp_buf env;

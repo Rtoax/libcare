@@ -1,3 +1,6 @@
+/**
+ *  
+ */
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -324,6 +327,9 @@ static int qemu_centos7_find_coroutines(struct kpatch_process *proc)
 		regs[JB_RIP] = PTR_DEMANGLE(regs[JB_RIP], ptr_guard);
 	}
 
+    /**
+     *  
+     */
 	kpatch_process_mem_iter_free(iter);
 
 	return ret;
@@ -455,6 +461,9 @@ static int fail_if_uses_coroutines(struct kpatch_process *proc)
 	return 0;
 }
 
+/**
+ *  
+ */
 static struct kpatch_coro_ops kpatch_coro_flavours[] = {
 	{
 		.find_coroutines = qemu_cloudlinux_find_coroutines
@@ -579,27 +588,39 @@ static unw_accessors_t _UCORO_accessors = {
 	_UPT_get_proc_name,
 };
 
+/**
+ *  协成初始化?
+ */
 int kpatch_coroutines_init(struct kpatch_process *proc)
 {
 	proc->coro.unwd = NULL;
 
+    /**
+     *  
+     */
 	list_init(&proc->coro.coros);
 
 	/* Freshly started binary can't have coroutines */
 	if (proc->is_just_started)
 		return 0;
 
-    //
+    /**
+     *  create address space for remote unwinding
+     *  获得一块被 追溯 的空间
+     */
 	proc->coro.unwd = unw_create_addr_space(&_UCORO_accessors, __LITTLE_ENDIAN);
 	if (!proc->coro.unwd) {
 		kplogerror("Can't create libunwind address space\n");
 		return -1;
 	}
+    
     debug_log("Create libunwind address space\n");
 	return 0;
 }
 
-//
+/**
+ *  
+ */
 int kpatch_coroutines_find(struct kpatch_process *proc)
 {
 	int i, rv;
@@ -607,7 +628,9 @@ int kpatch_coroutines_find(struct kpatch_process *proc)
 	/* Freshly started binary can't have coroutines */
 	if (proc->is_just_started)
 		return 0;
-    
+    /**
+     *  
+     */
 	for (i = 0; i < ARRAY_SIZE(kpatch_coro_flavours); i++) {
 		struct kpatch_coro_ops *ops = &kpatch_coro_flavours[i];
         warn_log("find_coroutines\n");

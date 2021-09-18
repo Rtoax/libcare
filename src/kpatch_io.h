@@ -14,6 +14,9 @@ struct kp_file {
 	char *dirname;
 	char *basename;
 	int nr_lines;
+    /**
+     *  保存汇编文件的每一行
+     */
 	char **lines;
 	int *lines_num; /* original line numbers */
 
@@ -33,5 +36,6 @@ int read_file(struct kp_file *f, char *fname);
 int create_file(struct kp_file *f, char *fname);
 void close_file(struct kp_file *f);
 void *kp_realloc(void *p, int oldsz, int newsz);
+void dump_kp_file_struct(struct kp_file*file);
 
 #endif /* __KP_IO_H__ */
