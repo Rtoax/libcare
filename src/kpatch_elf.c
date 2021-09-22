@@ -27,8 +27,7 @@ elf_object_peek_phdr(struct object_file *o)
     /**
      *  VMA 起始点
      */
-	o->vma_start = list_first_entry(&o->vma, struct obj_vm_area,
-					list)->inmem.start;
+	o->vma_start = list_first_entry(&o->vma, struct obj_vm_area, list)->inmem.start;
 
     /**
      *  ELF 文件头
@@ -628,6 +627,9 @@ unsigned long vaddr2addr(struct object_file *o, unsigned long vaddr)
 
 	if (vaddr == 0)
 		return 0;
+    /**
+     *  
+     */
 	list_for_each_entry(ovma, &o->vma, list) {
 		if (vaddr >= ovma->inelf.start && vaddr < ovma->inelf.end)
 			return vaddr - ovma->inelf.start + ovma->inmem.start;
@@ -638,6 +640,9 @@ unsigned long vaddr2addr(struct object_file *o, unsigned long vaddr)
 
 /**
  *  分配 几个 jump table
+ *
+ *  Undefined symbol 'printf@@GLIBC_2.2.5'
+ *  Undefined symbol 'puts@@GLIBC_2.2.5'
  */
 struct kpatch_jmp_table *kpatch_new_jmp_table(int entries)
 {
@@ -750,6 +755,9 @@ sym_name_cmp(const void *a_, const void *b_, void *s_)
 	return strcmp(s + a->st_name, s + b->st_name);
 }
 
+/**
+ *  
+ */
 static int
 elf_object_load_dynsym(struct object_file *o)
 {
@@ -768,20 +776,35 @@ elf_object_load_dynsym(struct object_file *o)
 	if (rv < 0)
 		return rv;
 
+    /**
+     *  找到动态库的程序头
+     */
 	for (i = 0; i < o->ehdr.e_phnum; i++) {
 		if (o->phdr[i].p_type == PT_DYNAMIC)
 			break;
 	}
 
+    /**
+     *  没找到
+     */
 	if (i == o->ehdr.e_phnum)
 		return -1;
 
+    /**
+     *  动态库程序头
+     */
 	phdr = &o->phdr[i];
 
+    /**
+     *  分配这个动态库 segment 大小
+     */
 	dynamics = malloc(phdr->p_memsz);
 	if (dynamics == NULL)
 		return -1;
 
+    /**
+     *  从 
+     */
 	rv = kpatch_process_mem_read(o->proc,
 				     o->load_offset + phdr->p_vaddr,
 				     dynamics,
@@ -789,6 +812,9 @@ elf_object_load_dynsym(struct object_file *o)
 	if (rv < 0)
 		goto out_free;
 
+    /**
+     *  遍历所有 动态 segment
+     */
 	for (i = 0; i < phdr->p_memsz / sizeof(Elf64_Dyn); i++) {
 		Elf64_Dyn *curdyn = dynamics + i;
 		switch (curdyn->d_tag) {
@@ -811,6 +837,9 @@ elf_object_load_dynsym(struct object_file *o)
 		}
 	}
 
+    /**
+     *  
+     */
 	symtab_sz = (strtab_addr - symtab_addr);
 
 	buffer = malloc(strtab_sz + symtab_sz);
@@ -824,6 +853,8 @@ elf_object_load_dynsym(struct object_file *o)
 	if (rv < 0)
 		goto out_free;
 
+    debug_log("buffer = %s\n", buffer);
+    
 	o->dynsyms = (Elf64_Sym*) buffer;
 	o->ndynsyms = symtab_sz / sizeof(Elf64_Sym);
 	o->dynsymnames = malloc(sizeof(char *) * o->ndynsyms);
@@ -857,6 +888,9 @@ bsearch_strcmp(const void *a_, const void *b_)
 	return strcmp(a, b);
 }
 
+/**
+ *  
+ */
 int kpatch_resolve_undefined_single_dynamic(struct object_file *o,
 					    const char *sname,
 					    unsigned long *addr)
@@ -865,6 +899,9 @@ int kpatch_resolve_undefined_single_dynamic(struct object_file *o,
 	void *found;
 	size_t n;
 
+    /**
+     *  
+     */
 	rv = elf_object_load_dynsym(o);
 	if (rv < 0)
 		return rv;
@@ -881,6 +918,9 @@ int kpatch_resolve_undefined_single_dynamic(struct object_file *o,
 	return GELF_ST_TYPE(o->dynsyms[n].st_info);
 }
 
+/**
+ *  printf@@GLIBC_2.2.5
+ */
 static unsigned long
 kpatch_resolve_undefined(struct object_file *obj,
 			 char *sname)
@@ -903,16 +943,26 @@ kpatch_resolve_undefined(struct object_file *obj,
 		if (!o->is_shared_lib)
 			continue;
 
+        /**
+         *  
+         */
 		type = kpatch_resolve_undefined_single_dynamic(o, sname, &addr);
 		if (type == -1)
 			continue;
 
+        unsigned long _addr = addr;
 		addr = vaddr2addr(o, addr);
 
-		if (type == STT_GNU_IFUNC)
+        debug_log("vaddr2addr: sname=%s 0x%016lx -> 0x%016lx\n", sname, _addr, addr);
+        /**
+         *  I - 表示间接
+         *  TODO - 2021年9月22日09:23:23
+         */
+		if (type == STT_GNU_IFUNC) {
+            debug_log("STT_GNU_IFUNC.\n");
 			if (kpatch_ptrace_resolve_ifunc(proc2pctx(obj->proc), &addr) < 0)
 				kpfatalerror("kpatch_ptrace_resolve_ifunc failed\n");
-
+        }
 		break;
 	}
 
@@ -920,6 +970,9 @@ kpatch_resolve_undefined(struct object_file *obj,
 }
 
 #define JMP_TABLE_JUMP  0x90900000000225ff /* jmp [rip+2]; nop; nop */
+/**
+ *  
+ */
 static unsigned long kpatch_add_jmp_entry(struct object_file *o, unsigned long addr)
 {
 	struct kpatch_jmp_table_entry entry = {JMP_TABLE_JUMP, addr};
@@ -951,21 +1004,41 @@ symbol_resolve(struct object_file *o,
 {
 	unsigned long uaddr;
 
+    /**
+     *  st_info - 指定符号类型及绑定属性
+     *  GELF_ST_TYPE - 从 st_info 值中提取类型值
+     */
 	switch(GELF_ST_TYPE(s->st_info)) {
+    /**
+     *  
+     */    
 	case STT_SECTION:
 		s->st_value = shdr[s->st_shndx].sh_addr;
 		break;
-
+    /**
+     *  该符号类型于函数或者其他可执行代码关联
+     */ 
 	case STT_FUNC:
+    /**
+     *  表示该符号与数据目标文件关联
+     */ 
 	case STT_OBJECT:
 
+        //38: 0000000000000000     0 FUNC    GLOBAL DEFAULT  UND printf@@GLIBC_2.2.5
+        //39: 00000000000000e6    17 FUNC    GLOBAL DEFAULT   14 print_hello
+        //40: 0000000000000000    27 FUNC    GLOBAL DEFAULT   16 print_hello.kpatch
 		/* TODO(pboldin) this breaks rule for overriding
 		 * symbols via dynamic libraries. Fix it. */
+		/**
+         *  UNDEF - 动态库中的 printf 即为 undef
+         */
 		if (s->st_shndx == SHN_UNDEF &&
 		    GELF_ST_BIND(s->st_info) == STB_GLOBAL) {
 			/* This is a reference to a symbol from
 			 * the dynamic library. Resolve it. */
-
+            /**
+             *  printf@@GLIBC_2.2.5
+             */
 			uaddr = kpatch_resolve_undefined(o, symname);
 
 			if (!uaddr) {
@@ -973,26 +1046,45 @@ symbol_resolve(struct object_file *o,
 				      symname);
 				return -1;
 			}
+            /**
+             *  
+             */
 			/* OK, we overuse st_size to store original offset */
 			s->st_size = uaddr;
+            /**
+             *  
+             */
 			s->st_value = kpatch_add_jmp_entry(o, uaddr);
 
-			kpdebug("symbol '%s' = 0x%lx\n",
-				symname, uaddr);
-			kpdebug("jmptable '%s' = 0x%lx\n",
-				symname, s->st_value);
-		} else {
+			kpdebug("symbol '%s' = 0x%lx\n", symname, uaddr);
+			kpdebug("jmptable '%s' = 0x%lx\n", symname, s->st_value);
+		} 
+        /**
+         *  
+         */
+        else {
 			/*
 			 * We retain all non-local (except for .LC*)
 			 * symbols to help us debugging.
 			 */
-			if (GELF_ST_BIND(s->st_info) == STB_GLOBAL)
-				kpwarn("symbol '%s' is defined and global, we don't check for overrition\n",
-				       symname);
+			if (GELF_ST_BIND(s->st_info) == STB_GLOBAL) {
+				kpwarn("symbol '%s' is defined and global, we don't check for overrition\n", symname);
+				warn_log("symbol '%s' is defined and global, we don't check for overrition\n", symname);
+            }
 
+            /**
+             *  sh_addr - section 的起始地址
+             *  st_shndx - 每个符号表条目的定义都与某些节对应，该变量保存了相关节头索引
+             *  st_value - 存放符号的值，可能是地址或者位置偏移量
+             */
 			s->st_value += shdr[s->st_shndx].sh_addr;
-			kpdebug("symbol '%s' = 0x%lx\n",
-				symname, s->st_value);
+
+            /**
+             *  print_hello
+             *  print_hello.kpatch
+             */
+			kpdebug("symbol '%s' = 0x%lx\n", symname, s->st_value);
+			debug_log(">> symbol '%s' = 0x%lx\n", symname, s->st_value);
 		}
 
 		break;
@@ -1087,6 +1179,9 @@ int kpatch_resolve(struct object_file *o)
      *  获取符号表 section
      */
 	strsym = (void *)ehdr + shdr[shdr[symidx].sh_link].sh_offset;
+    /**
+     *  
+     */
 	for (i = 1; i < shdr[symidx].sh_size / sizeof(GElf_Sym); i++) {
 		GElf_Sym *s = sym + i;
 		char *symname = strsym + s->st_name;
@@ -1115,6 +1210,7 @@ int kpatch_resolve(struct object_file *o)
 
 /**
  *  
+ *  重定向 .rela.kpatch.info
  */
 static int kpatch_apply_relocate_add(struct object_file *o, GElf_Shdr *relsec)
 {
@@ -1122,46 +1218,121 @@ static int kpatch_apply_relocate_add(struct object_file *o, GElf_Shdr *relsec)
      *  
      */
 	struct kpatch_file *kp = o->kpfile.patch;
+    /**
+     *  程序头
+     */
 	GElf_Ehdr *ehdr = (void *)kp + kp->kpatch_offset;
+    /**
+     *  section头
+     */
 	GElf_Shdr *shdr = (void *)ehdr + ehdr->e_shoff, *symhdr;
+    /**
+     *  重定向 .rela.kpatch.info segment
+     *  .rela.kpatch.info 在 ELF 文件中的位置
+     */
 	GElf_Rela *relocs = (void *)ehdr + relsec->sh_offset;
+    /**
+     *  重定向 .rela.kpatch.info 节头
+     */
 	GElf_Shdr *tshdr = shdr + relsec->sh_info;
-	void *t = (void *)ehdr + shdr[relsec->sh_info].sh_offset;
-	void *tshdr2 = (void *)shdr[relsec->sh_info].sh_addr;
+    debug_log("relsec->sh_info = %016lx\nrelsec->sh_offset = %016lx\n", relsec->sh_info, relsec->sh_offset);
+    /**
+     *  offset of shdr from beginning of file
+     *  当前进程
+     */
+	void *t = (void *)ehdr + tshdr->sh_offset;
+    /**
+     *  address of where is section begins
+     *  被追踪的进程
+     */
+	void *tshdr2 = (void *)tshdr->sh_addr;
+
+
+    debug_log("tshdr->sh_addr = %016lx\ntshdr->sh_offset = %016lx\n", tshdr->sh_addr, tshdr->sh_offset);
+    
 	int i, is_kpatch_info;
 	const char *scnname;
 
+    /**
+     *  找到 symbol section
+     */
 	for (i = 1; i < ehdr->e_shnum; i++) {
-		if (shdr[i].sh_type == SHT_SYMTAB)
+		if (shdr[i].sh_type == SHT_SYMTAB) {
 			symhdr = &shdr[i];
+            /**
+             *  + break;  rongtao 2021年9月22日09:47:55
+             */
+            break; 
+        }
 	}
-
+    
+    
+    /**
+     *  .kpatch.text
+     *  .kpatch.info
+     */
 	scnname = secname(ehdr, shdr + relsec->sh_info);
 	kpdebug("applying relocations to '%s'\n", scnname);
+	debug_log("applying relocations to '%s'\n", scnname);
+    
 	is_kpatch_info = strcmp(scnname, ".kpatch.info") == 0;
 
+    /**
+     *  遍历
+     */
 	for (i = 0; i < relsec->sh_size / sizeof(*relocs); i++) {
+        /**
+         *  
+         */
 		GElf_Rela *r = relocs + i;
 		GElf_Sym *s;
 		unsigned long val;
 		void *loc, *loc2;
 
+        /**
+         *  
+         */
 		if (r->r_offset < 0 || r->r_offset >= tshdr->sh_size)
 			kpfatalerror("Relocation offset for section '%s'"
 				     " is at 0x%lx beyond the section size 0x%lx\n",
 				     scnname, r->r_offset, tshdr->sh_size);
 
+        /**
+         *  当前进程的地址空间
+         */
 		/* Location in our address space */
 		loc = t + r->r_offset;
+        /**
+         *  被追踪的进程地址空间
+         */
 		/* Location in target process address space (for relative addressing) */
 		loc2 = tshdr2 + r->r_offset;
-		s = (GElf_Sym *)((void *)ehdr + symhdr->sh_offset) + GELF_R_SYM(r->r_info);
-		val = s->st_value + r->r_addend;
 
+        /**
+         *  r_info 包含了符号表索引 和 重定位类型
+         */
+		s = (GElf_Sym *)((void *)ehdr + symhdr->sh_offset) + GELF_R_SYM(r->r_info);
+        /**
+         *  st_value - 存放符号的值，可能是 地址或者位置偏移量
+         *  r_addend - 用于计算存储在可重定位字段中的值
+         */
+		val = s->st_value + r->r_addend;
+        
+        debug_log("s->st_value = %016lx\n", s->st_value);
+        debug_log("r->r_addend = %016lx\n", r->r_addend);
+        
+        /**
+         *  .kpatch.info
+         */
 		if (is_kpatch_info && is_undef_symbol(s)) {
 			val = s->st_size;
 		}
 
+        /**
+         *  重定位类型
+         *  如果 做 ARM 兼容， 需要考虑 R_ARM_NONE ？？ 
+         *  荣涛 2021年9月22日11:09:52
+         */
 		switch (GELF_R_TYPE(r->r_info)) {
 		case R_X86_64_NONE:
 			break;
@@ -1176,7 +1347,13 @@ static int kpatch_apply_relocate_add(struct object_file *o, GElf_Shdr *relsec)
 			break;
 		case R_X86_64_GOTTPOFF:
 		case R_X86_64_GOTPCREL:
+        /* Load from 32 bit signed pc relative
+           offset to GOT entry with REX prefix,
+           relaxable.  */    
 		case R_X86_64_REX_GOTPCRELX:
+        /* Load from 32 bit signed pc relative
+           offset to GOT entry without REX
+           prefix, relaxable.  */
 		case R_X86_64_GOTPCRELX:
 			if (is_undef_symbol(s)) {
 				/* This is an undefined symbol,
@@ -1219,18 +1396,30 @@ int kpatch_relocate(struct object_file *o)
 	GElf_Shdr *shdr;
 	int i, ret = 0;
 
+    /**
+     *  程序头
+     */
 	ehdr = (void *)o->kpfile.patch + o->kpfile.patch->kpatch_offset;
+    /**
+     *  section 头
+     */
 	shdr = (void *)ehdr + ehdr->e_shoff;
 
 	kpdebug("Applying relocations for '%s'...\n", o->name);
+    /**
+     *  遍历所有 section头
+     */
 	for (i = 1; i < ehdr->e_shnum; i++) {
 		GElf_Shdr *s = shdr + i;
 
         /**
-         *  重定向
+         *  重定向 .rela.kpatch.info
          */
 		if (s->sh_type == SHT_RELA)
 			ret = kpatch_apply_relocate_add(o, s);
+        /**
+         *  
+         */
 		else if (shdr->sh_type == SHT_REL) {
 			kperr("TODO: handle SHT_REL\n");
 			return -1;

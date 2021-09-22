@@ -6,7 +6,7 @@
 # 2021年9月14日
 
 src_src=foo.c
-patch_src=bar2.c
+patch_src=bar.c
 
 function press_any_key()
 {

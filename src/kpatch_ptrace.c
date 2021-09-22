@@ -72,6 +72,9 @@ kpatch_process_mem_write_ptrace(kpatch_process_t *proc,
 	return 0;
 }
 
+/**
+ *  
+ */
 int
 kpatch_process_mem_write(kpatch_process_t *proc,
 			 void *src,
@@ -81,9 +84,14 @@ kpatch_process_mem_write(kpatch_process_t *proc,
 	static int use_pwrite = 1;
 	ssize_t w;
 
-	if (use_pwrite)
+    /**
+     *  这是写 目标进程 地址空间的文件描述符 memfd 的操作
+     */
+	if (use_pwrite) {
 		w = pwrite(proc->memfd, src, size, (off_t)dst);
+    }
 	if (!use_pwrite || (w == -1 && errno == EINVAL)) {
+        warn_log("not use pwrite.\n");
 		use_pwrite = 0;
 		return kpatch_process_mem_write_ptrace(proc, src, dst, size);
 	}
@@ -91,6 +99,9 @@ kpatch_process_mem_write(kpatch_process_t *proc,
 	return w != size ? -1 : 0;
 }
 
+/**
+ *  
+ */
 struct process_mem_iter *
 kpatch_process_mem_iter_init(kpatch_process_t *proc)
 {
@@ -976,6 +987,7 @@ kpatch_ptrace_kickstart_execve_wrapper(kpatch_process_t *proc)
 
 		snprintf(buf, sizeof(buf), "/proc/%d/mem", proc->pid);
 		proc->memfd = open(buf, O_RDWR);
+        info_log("memfd = %d = open(%s, O_RDWR), \n", proc->memfd, "/proc/PID/mem");
 	}
 
 	kpdebug("...done\n");

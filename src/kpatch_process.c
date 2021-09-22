@@ -880,10 +880,13 @@ kpatch_process_mem_open(kpatch_process_t *proc, int mode)
 
 	snprintf(path, sizeof(path), "/proc/%d/mem", proc->pid);
     /**
-     *  打开
+     *  打开, 当前用户的文件打开方式 可以为 读写
+     *  [rongtao@bogon rt]$ ll /proc/$(pidof foo)/mem
+     *  -rw-------. 1 rongtao rongtao 0 Sep 22 14:46 /proc/22686/mem
      */
 	proc->memfd = open(path, mode == MEM_WRITE ? O_RDWR : O_RDONLY);
-    debug_log("open %s\n", path);
+    debug_log("memfd = open(%s, %s)\n", path, mode == MEM_WRITE ? "O_RDWR" : "O_RDONLY");
+    info_log("memfd = %d = open(%s, O_RDWR), \n", proc->memfd, "/proc/PID/mem");
     
 	if (proc->memfd < 0) {
 		kplogerror("can't open /proc/%d/mem", proc->pid);

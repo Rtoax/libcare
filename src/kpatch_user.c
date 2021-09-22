@@ -467,6 +467,9 @@ int cmd_info_user(int argc, char *argv[])
 	const char *storagepath = storage_dir;
 	const char *regexp = NULL;
 
+    /**
+     *  
+     */
 	while ((opt = getopt(argc, argv, "hb:p:s:r:vn")) != EOF) {
 		switch (opt) {
 		case 'b':
@@ -506,7 +509,9 @@ int cmd_info_user(int argc, char *argv[])
 		return usage_info("regexp & buildid | buildid & storage are mutual");
 	}
 
-
+    /**
+     *  
+     */
 	return processes_info(pid, buildid, storagepath, regexp,
 			      print_description);
 }

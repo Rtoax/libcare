@@ -233,8 +233,7 @@ patch_verify_safety(struct object_file *o,
  * and checking for action safety again.
  */
 static int
-patch_ensure_safety(struct object_file *o,
-		    int action)
+patch_ensure_safety(struct object_file *o, int action)
 {
 	struct kpatch_ptrace_ctx *p;
 	unsigned long ret, *retips;
@@ -253,6 +252,7 @@ patch_ensure_safety(struct object_file *o,
      *  
      */
 	ret = patch_verify_safety(o, retips, action);
+    
 	/*
 	 * For coroutines we can't "execute until"
 	 */
@@ -294,28 +294,93 @@ patch_ensure_safety(struct object_file *o,
 
 #define HUNK_SIZE 5
 
+/**
+ *  
+ */
 static int
 patch_apply_hunk(struct object_file *o, size_t nhunk)
 {
 	int ret;
+    /**
+     *  JUMP - 
+     *  jmpq - 用于表示负偏移量
+     */
 	char code[HUNK_SIZE] = {0xe9, 0x00, 0x00, 0x00, 0x00}; /* jmp IMM */
 	struct kpatch_info *info = &o->info[nhunk];
 	unsigned long pundo;
 
+    /**
+     *  
+     */
 	if (is_new_func(info))
 		return 0;
 
 	pundo = o->kpta + o->kpfile.patch->user_undo + nhunk * HUNK_SIZE;
 	kpinfo("%s origcode from 0x%lx+0x%x to 0x%lx\n",
 	       o->name, info->daddr, HUNK_SIZE, pundo);
-	ret = kpatch_process_memcpy(o->proc, pundo,
-				    info->daddr, HUNK_SIZE);
+
+    /**
+     *  原始函数 print_hello 
+     */       
+	ret = kpatch_process_memcpy(o->proc, pundo, info->daddr, HUNK_SIZE);
 	if (ret < 0)
 		return ret;
 
 	kpinfo("%s hunk 0x%lx+0x%x -> 0x%lx+0x%x\n",
 	       o->name, info->daddr, info->dlen, info->saddr, info->slen);
+	info_log("%s hunk 0x%lx+0x%x -> 0x%lx+0x%x\n",
+	       o->name, info->daddr, info->dlen, info->saddr, info->slen);
+    
+    //    .pushsection .kpatch.info,"a",@progbits
+    //print_hello.Lpi:
+    //    .quad print_hello
+    //    .quad print_hello.kpatch
+    //    .long print_hello.Lfe - print_hello
+    //    .long print_hello.kpatch_end - print_hello.kpatch
+    //    .quad kpatch_strtab1
+    //    .quad 0
+    //    .long 0
+    //    .byte 0, 0, 0, 0
+    //    .popsection
+
+    /**
+     *  char code[HUNK_SIZE] = {0xe9, 0x00, 0x00, 0x00, 0x00};
+     *                                  ^
+     *                              code + 1
+     *
+     *  = print_hello.kpatch - print_hello - 5
+     */       
 	*(unsigned int *)(code + 1) = (unsigned int)(info->saddr - info->daddr - 5);
+
+    info_log("USE `jmpq %016lx` replace %016lx.\n", info->saddr - info->daddr - 5, info->daddr);
+
+    /**
+     *  用 jmpq 替换 原始函数的前 5个 字节
+     [原始]
+        (gdb) disassemble print_hello
+        Dump of assembler code for function print_hello:
+        0x00000000004005d6 <+0>:	push   %rbp
+        0x00000000004005d7 <+1>:	mov    %rsp,%rbp
+        0x00000000004005da <+4>:	mov    $0x400698,%edi
+        0x00000000004005df <+9>:	callq  0x4004d0 <puts@plt>
+        0x00000000004005e4 <+14>:	nop
+        0x00000000004005e5 <+15>:	pop    %rbp
+        0x00000000004005e6 <+16>:	retq
+        
+     [替换后]
+        (gdb) disassemble print_hello
+        Dump of assembler code for function print_hello:
+        0x00000000004005d6 <+0>: jmpq   0x45d445
+        0x00000000004005db <+5>: cwtl    ---------------------从此往后，只是解析二进制 串行了，没有任何意义
+        0x00000000004005dc <+6>: (bad)  
+        0x00000000004005dd <+7>: add    %bpl,%al
+        0x00000000004005e0 <+10>:    in     (%dx),%al
+        0x00000000004005e1 <+11>:    (bad)  
+        0x00000000004005e2 <+12>:    (bad)  
+        0x00000000004005e3 <+13>:    callq  *0x4855c35d(%rax)
+
+      cwtl - Convert Word to Long, like AX -> EAX
+     */
 	ret = kpatch_process_mem_write(o->proc,
             				       code,
             				       info->daddr,
@@ -425,6 +490,9 @@ object_apply_patch(struct object_file *o)
          *  使用 malloc
          */
 		o->jmp_table = kpatch_new_jmp_table(undef);
+        /**
+         *  
+         */
 		kp->jmp_offset = sz;
 		kpinfo("Jump table %d bytes for %d syms at offset 0x%x\n",
 		       o->jmp_table->size, undef, kp->jmp_offset);
@@ -473,11 +541,13 @@ object_apply_patch(struct object_file *o)
 
     /**
      *  将补丁写入 内存空间
+     *
+     *  kpta - 在 目标进程地址空间中存放 补丁的地址
      */
 	ret = kpatch_process_mem_write(o->proc,
-        				       kp,
-        				       o->kpta,
-        				       kp->total_size);
+            				       kp,
+            				       o->kpta,
+            				       kp->total_size);
 	if (ret < 0)
 		return -1;
 
@@ -485,16 +555,18 @@ object_apply_patch(struct object_file *o)
      *  
      */
 	if (o->jmp_table) {
+        warn_log("jump_table.\n");
 		ret = kpatch_process_mem_write(o->proc,
-					       o->jmp_table,
-					       o->kpta + kp->jmp_offset,
-					       o->jmp_table->size);
+            					       o->jmp_table,
+            					       o->kpta + kp->jmp_offset,
+            					       o->jmp_table->size);
 		if (ret < 0)
 			return ret;
 	}
 
     /**
-     *  
+     *  不影响单线程 patch
+     *  TODO 荣涛 2021年9月22日13:52:12
      */
 	ret = patch_ensure_safety(o, ACTION_APPLY_PATCH);
 	if (ret < 0)

@@ -126,6 +126,9 @@ struct kpatch_file {
 	kpatch_offset_t kpatch_offset;	/* content offset */
 	kpatch_offset_t rel_offset;	/* relocations offset (vmlinux) */
 	kpatch_offset_t total_size;	/* total size = header + relocations + content */
+    /**
+     *  
+     */
 	kpatch_offset_t jmp_offset;	/* jump table offset for user-space patches */
 
 	/* array of entry offsets in the patch content */
