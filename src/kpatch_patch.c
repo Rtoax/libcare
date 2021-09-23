@@ -495,12 +495,21 @@ object_apply_patch(struct object_file *o)
          */
 		kp->jmp_offset = sz;
 		kpinfo("Jump table %d bytes for %d syms at offset 0x%x\n",
-		       o->jmp_table->size, undef, kp->jmp_offset);
+		        o->jmp_table->size, undef, kp->jmp_offset);
 		sz = ROUND_UP(sz + o->jmp_table->size, 128);
 	}
 
     /**
      *  补丁 信息
+     *  
+     *  +-------+ foo.kpatch <----- o->kpfile.patch
+     *  |       |               |
+     *  |       |           user_info   
+     *  |       |               |
+     *  | kpatch| <---------------- o->info
+     *  | info  |
+     *  |       |
+     *  +-------+
      *  
      */
 	kp->user_info = (unsigned long)o->info - (unsigned long)o->kpfile.patch;
@@ -517,7 +526,8 @@ object_apply_patch(struct object_file *o)
 	 * Map patch as close to the original code as possible.
 	 * Otherwise we can't use 32-bit jumps.
 	 * 
-     *  映射 补丁 
+     *  映射 补丁 - 在目标进程中为补丁分配空间
+     *
      *  在尽可能贴近原有 代码的位置 映射 补丁
      *  注意，这个函数没有 将补丁代码 拷贝到内核地址空间
      */
@@ -731,19 +741,21 @@ int process_patch(int pid, void *_data)
 	/*
 	 * In case the process was just started we continue execution up to the
 	 * entry point of a program just to allow ld.so to load up libraries
-	 *//**
-     *  
+	 *
+     *  不执行也没有影响 - 荣涛 TODO 2021年9月22日18:49:15
      */
-//	ret = kpatch_process_load_libraries(proc);
-//	if (ret < 0)
-//		goto out_free;
+	ret = kpatch_process_load_libraries(proc);
+	if (ret < 0)
+		goto out_free;
 
 	/*
 	 * In case we got there from startup send_fd != -1.
+	 *
+	 * 不执行也没有影响 - 荣涛 TODO 2021年9月22日18:49:15
 	 */
-//	ret = kpatch_process_kick_send_fd(proc);
-//	if (ret < 0)
-//		goto out_free;
+	ret = kpatch_process_kick_send_fd(proc);
+	if (ret < 0)
+		goto out_free;
 
 	/*
 	 * For each object file that we want to patch (either binary itself or
@@ -838,6 +850,19 @@ object_find_applied_patch_info(struct object_file *o)
 	if (iter == NULL)
 		return -1;
 
+    /**
+     *  补丁 信息
+     *  
+     *  +-------+ foo.kpatch <----- o->kpfile.patch
+     *  |       |               |
+     *  |       |           user_info   
+     *  |       |               |
+     *  | kpatch| <---------------- o->info
+     *  | info  |
+     *  |       |
+     *  +-------+
+     *  
+     */
 	remote_info = (void *)o->kpta + o->kpfile.patch->user_info;
 	do {
 		ret = REMOTE_PEEK(iter, tmpinfo, remote_info);
@@ -867,6 +892,9 @@ err:
 	return ret;
 }
 
+/**
+ *  
+ */
 static int
 object_unapply_patch(struct object_file *o, int check_flag)
 {
@@ -874,6 +902,9 @@ object_unapply_patch(struct object_file *o, int check_flag)
 	size_t i;
 	unsigned long orig_code_addr;
 
+    /**
+     *  
+     */
 	ret = object_find_applied_patch_info(o);
 	if (ret < 0)
 		return ret;

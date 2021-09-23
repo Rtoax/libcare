@@ -27,6 +27,9 @@ static int
 patch_file_verify(struct kp_file *kpfile)
 {
 	GElf_Ehdr *hdr;
+    /**
+     *  kpfile->patch 为 补丁文件格式头
+     */
 	struct kpatch_file *k = kpfile->patch;
 	ssize_t size = kpfile->size;
 
@@ -66,6 +69,9 @@ patch_file_verify(struct kp_file *kpfile)
 	return 1;
 }
 
+/**
+ *  
+ */
 int storage_init(kpatch_storage_t *storage,
 	     const char *fname)
 {

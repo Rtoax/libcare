@@ -1035,12 +1035,15 @@ static int kpatch_syscall_remote(struct kpatch_ptrace_ctx *pctx, int nr,
 	regs.r8 = arg5;
 	regs.r9 = arg6;
 
+
     /**
      *  注入代码，执行 mmap 映射
      */
 	ret = kpatch_execute_remote(pctx, syscall, sizeof(syscall), &regs);
 	if (ret == 0)
 		*res = regs.rax;
+    
+    info_log("%016lx = mmap(%016lx, %d, %d, %d, %d, %d)\n", *res, arg1, arg2, arg3, arg4, arg5, arg6);
 
 	return ret;
 }
@@ -1287,7 +1290,7 @@ int kpatch_ptrace_attach_thread(kpatch_process_t *proc, int tid)
 	struct kpatch_ptrace_ctx *pctx;
 
     /**
-     *  分配 内存，初始化链表 病添加到 全局链表里
+     *  分配 内存，初始化链表 并添加到 全局链表里
      */
 	pctx = kpatch_ptrace_ctx_alloc(proc);
 	if (pctx == NULL) {

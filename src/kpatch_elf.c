@@ -1066,6 +1066,9 @@ symbol_resolve(struct object_file *o,
 			/*
 			 * We retain all non-local (except for .LC*)
 			 * symbols to help us debugging.
+			 *
+             * 39: 00000000000000e6    17 FUNC    GLOBAL DEFAULT   14 print_hello
+             * 40: 0000000000000000    27 FUNC    GLOBAL DEFAULT   16 print_hello.kpatch
 			 */
 			if (GELF_ST_BIND(s->st_info) == STB_GLOBAL) {
 				kpwarn("symbol '%s' is defined and global, we don't check for overrition\n", symname);
@@ -1150,7 +1153,7 @@ int kpatch_resolve(struct object_file *o)
 			 * For our own sections, we just point sh_addr to
 			 * proper offet in *target process* region of memory
 			 *
-			 * kpta 保存了 patch 文件的初始地址，这个地址重定向到我们的补丁中
+			 * kpta 保存了 目标进程中 patch 初始地址
 			 */
 			s->sh_addr = (unsigned long)o->kpta +
 				    o->kpfile.patch->kpatch_offset + s->sh_offset;
@@ -1211,6 +1214,20 @@ int kpatch_resolve(struct object_file *o)
 /**
  *  
  *  重定向 .rela.kpatch.info
+ *
+ *  [rongtao@bogon rt]$ readelf -r foobar.stripped 
+ *  
+ *  Relocation section '.rela.kpatch.text' at offset 0x640 contains 3 entries:
+ *  Offset          Info           Type           Sym. Value    Sym. Name + Addend
+ *  000000000005  00020000000a R_X86_64_32       0000000000601038 .kpatch.data + 0
+ *  00000000000a  00020000000a R_X86_64_32       0000000000601038 .kpatch.data + e
+ *  000000000014  002600000002 R_X86_64_PC32     0000000000000000 printf@@GLIBC_2.2.5 - 4
+ *  
+ *  Relocation section '.rela.kpatch.info' at offset 0x688 contains 3 entries:
+ *  Offset          Info           Type           Sym. Value    Sym. Name + Addend
+ *  000000000000  002700000001 R_X86_64_64       00000000000000e6 print_hello + 0
+ *  000000000008  002800000001 R_X86_64_64       0000000000000000 print_hello.kpatch + 0
+ *  000000000018  000100000001 R_X86_64_64       00000000004006fd .kpatch.strtab + 0
  */
 static int kpatch_apply_relocate_add(struct object_file *o, GElf_Shdr *relsec)
 {
@@ -1229,13 +1246,20 @@ static int kpatch_apply_relocate_add(struct object_file *o, GElf_Shdr *relsec)
     /**
      *  重定向 .rela.kpatch.info segment
      *  .rela.kpatch.info 在 ELF 文件中的位置
+     *
+     *  Offset          Info           Type           Sym. Value    Sym. Name + Addend
+     *  000000000000  002700000001 R_X86_64_64       00000000000000e6 print_hello + 0
+     *  000000000008  002800000001 R_X86_64_64       0000000000000000 print_hello.kpatch + 0
+     *  000000000018  000100000001 R_X86_64_64       00000000004006fd .kpatch.strtab + 0
      */
 	GElf_Rela *relocs = (void *)ehdr + relsec->sh_offset;
     /**
-     *  重定向 .rela.kpatch.info 节头
+     *   
      */
 	GElf_Shdr *tshdr = shdr + relsec->sh_info;
-    debug_log("relsec->sh_info = %016lx\nrelsec->sh_offset = %016lx\n", relsec->sh_info, relsec->sh_offset);
+    
+    debug_log("relsec->sh_info = %016lx\n", relsec->sh_info);
+    debug_log("relsec->sh_offset = %016lx\n", relsec->sh_offset);
     /**
      *  offset of shdr from beginning of file
      *  当前进程
@@ -1246,9 +1270,9 @@ static int kpatch_apply_relocate_add(struct object_file *o, GElf_Shdr *relsec)
      *  被追踪的进程
      */
 	void *tshdr2 = (void *)tshdr->sh_addr;
-
-
-    debug_log("tshdr->sh_addr = %016lx\ntshdr->sh_offset = %016lx\n", tshdr->sh_addr, tshdr->sh_offset);
+    
+    debug_log("tshdr->sh_addr = %016lx\n");
+    debug_log("tshdr->sh_offset = %016lx\n", tshdr->sh_addr, tshdr->sh_offset);
     
 	int i, is_kpatch_info;
 	const char *scnname;
@@ -1414,6 +1438,20 @@ int kpatch_relocate(struct object_file *o)
 
         /**
          *  重定向 .rela.kpatch.info
+         *
+         *  [rongtao@bogon rt]$ readelf -r foobar.stripped 
+         *  
+         *  Relocation section '.rela.kpatch.text' at offset 0x640 contains 3 entries:
+         *  Offset          Info           Type           Sym. Value    Sym. Name + Addend
+         *  000000000005  00020000000a R_X86_64_32       0000000000601038 .kpatch.data + 0
+         *  00000000000a  00020000000a R_X86_64_32       0000000000601038 .kpatch.data + e
+         *  000000000014  002600000002 R_X86_64_PC32     0000000000000000 printf@@GLIBC_2.2.5 - 4
+         *  
+         *  Relocation section '.rela.kpatch.info' at offset 0x688 contains 3 entries:
+         *  Offset          Info           Type           Sym. Value    Sym. Name + Addend
+         *  000000000000  002700000001 R_X86_64_64       00000000000000e6 print_hello + 0
+         *  000000000008  002800000001 R_X86_64_64       0000000000000000 print_hello.kpatch + 0
+         *  000000000018  000100000001 R_X86_64_64       00000000004006fd .kpatch.strtab + 0
          */
 		if (s->sh_type == SHT_RELA)
 			ret = kpatch_apply_relocate_add(o, s);

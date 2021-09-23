@@ -62,6 +62,9 @@ processes_patch(kpatch_storage_t *storage,
 /* Check if system is suitable */
 static int kpatch_check_system(void)
 {
+    /**
+     *  TODO 荣涛 2021年9月22日
+     */
 	return 1;
 }
 
@@ -139,6 +142,9 @@ int cmd_patch_user(int argc, char *argv[])
 	if (!is_pid_set)
 		return usage_patch("PID argument is mandatory");
 
+    /**
+     *  检查系统
+     */
 	if (!kpatch_check_system())
 		goto out_err;
 
@@ -148,6 +154,10 @@ int cmd_patch_user(int argc, char *argv[])
      *  storage_path = "./foo.kpatch"
      */
 	storage_path = argv[argc - 1];
+
+    /**
+     *  
+     */
 	ret = patch_user(storage_path, pid, /* is_just_started */ 0, /* send_fd */ -1);
 
 out_err:
@@ -975,6 +985,9 @@ int main(int argc, char *argv[])
 	if (argc < 1)
 		return usage("not enough arguments.");
 
+    /**
+     *  
+     */
 	if (!strcmp(argv[0], "server"))
 		return cmd_server(argc, argv);
 	else
