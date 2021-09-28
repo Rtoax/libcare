@@ -664,6 +664,8 @@ Makefie中
 将会导致：
 
     ../src/libcare-cc -c foo.c -Wall -O2
+
+
     Compile>> /usr/bin/gcc -S foo.c -Wall -O2 -o ./.kpatch_foo.o.original.s
     Compile>> /usr/bin/gcc -c ./.kpatch_foo.o.original.s -Wall -O2 -o foo.o
 
