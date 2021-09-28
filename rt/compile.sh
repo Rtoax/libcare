@@ -8,12 +8,14 @@
 src_src=foo.c
 patch_src=bar.c
 
+# 日志
 function press_any_key()
 {
 	echo -e "\033[1;31m>>>> $1 <<<<\033[m"
 	read -r -p "Press any key to continue..." __input
 }
 
+# 一步一步生成 热补丁
 function test_by_hand() {
 # 进行汇编
 gcc -S $src_src -o ${src_src%%.*}.s
@@ -24,7 +26,7 @@ press_any_key "Compile to assmebler done"
 # 修改 bar.s 文件
 sed -i "s/$patch_src/$src_src/" ${patch_src%%.*}.s
 # foo.s + bar.s = foobar.s
-kpatch_gensrc --os=rhel6 -i ${src_src%%.*}.s -i ${patch_src%%.*}.s \
+../src/kpatch_gensrc --os=rhel6 -i ${src_src%%.*}.s -i ${patch_src%%.*}.s \
 	-o ${src_src%%.*}${patch_src%%.*}.s --force-global
 press_any_key "Generate combine assmebler done"
 
@@ -34,33 +36,37 @@ gcc -o ${src_src%%.*}${patch_src%%.*} ${src_src%%.*}${patch_src%%.*}.s -Wl,-q
 press_any_key "Compile assmebler to ELF done"
 
 # 利用 kpatch_strip 去除可执行程序 foo 和 foobar 的相同内容，保留制作热补丁所需要的内容。
-kpatch_strip --strip ${src_src%%.*}${patch_src%%.*} ${src_src%%.*}${patch_src%%.*}.stripped
-kpatch_strip --rel-fixup ${src_src%%.*} ${src_src%%.*}${patch_src%%.*}.stripped
+../src/kpatch_strip --strip ${src_src%%.*}${patch_src%%.*} ${src_src%%.*}${patch_src%%.*}.stripped
+../src/kpatch_strip --rel-fixup ${src_src%%.*} ${src_src%%.*}${patch_src%%.*}.stripped
 strip --strip-unneeded ${src_src%%.*}${patch_src%%.*}.stripped
-kpatch_strip --undo-link ${src_src%%.*} ${src_src%%.*}${patch_src%%.*}.stripped
+../src/kpatch_strip --undo-link ${src_src%%.*} ${src_src%%.*}${patch_src%%.*}.stripped
 press_any_key "Stripped unuseful section done"
 
 # 制作热补丁文件 foo.kpatch
 str=$(readelf -n ${src_src%%.*} | grep 'Build ID')
 substr=${str##* }
-kpatch_make -b $substr ${src_src%%.*}${patch_src%%.*}.stripped -o ${src_src%%.*}.kpatch
+../src/kpatch_make -b $substr ${src_src%%.*}${patch_src%%.*}.stripped -o ${src_src%%.*}.kpatch
 press_any_key "Generate patch file done"
 
 }
 
-#function test_by_script() {
-#diff -up foo.c bar.c > foo.patch
-#libcare-patch-make --clean foo.patch
-#}
+# 使用脚本快速编译热补丁
+function test_by_script() {
+	diff -up $src_src $patch_src > ${src_src%%.*}.patch
+	../src/libcare-patch-make --clean  ${src_src%%.*}.patch
+}
 
 # 更新 libcare
 source path.sh
 
+# 按照步骤，一步一步生成 热补丁
 test_by_hand
 ./${src_src%%.*}
 
-# 编译生成热补丁
+# 使用脚本，编译生成热补丁
 #test_by_script $*
+#./lpmake/${src_src%%.*}
+
 
 # 执行程序
 #./lpmake/foo

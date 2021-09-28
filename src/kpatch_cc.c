@@ -104,6 +104,11 @@ static enum {
 	KPATCH_PATCHED,
 	KPATCH_CONFIGURE
 } stage;
+    
+/**
+ *  是 original 还是 patched
+ *  kpatch_stage = getenv("KPATCH_STAGE");
+ */
 static const char *kpatch_stage;
 
 
@@ -263,6 +268,9 @@ static void init(int argc_, const char **argv_)
 	if (kpatch_path == NULL) {
 		strcpy(pathbuf, argv_[0]);
 		dirname(pathbuf);
+        /**
+         *  kpatch_gensrc 对比 汇编代码差异
+         */
 		strcat(pathbuf, "/kpatch_gensrc");
 		if (access(pathbuf, X_OK) != 0) {
 			kpccfatal("can't find kpatch_gensrc at %s, define KPATCH_PATH\n",
@@ -274,10 +282,16 @@ static void init(int argc_, const char **argv_)
 		kpatch_path = pathbuf;
 	}
 
+    /**
+     *  是 original 还是 patched
+     */
 	kpatch_stage = getenv("KPATCH_STAGE");
 	if (kpatch_stage == NULL)
 		kpccfatal("KPATCH_STAGE is undefined\n");
 
+    /**
+     *  这在 libcare-patch-make 中有所体现
+     */
 	if (strcmp(kpatch_stage, "original") == 0) {
 		stage = KPATCH_ORIGINAL;
 	} else if (strcmp(kpatch_stage, "patched") == 0) {
@@ -313,6 +327,9 @@ static void init(int argc_, const char **argv_)
 		      (int (*)(const void *, const void *))strcmp);
 	}
 
+    /**
+     *  额外的 arguments
+     */
 	args = getenv("KPCC_APPEND_ARGS");
 	if (args != NULL) {
 		nappend_args = split_args(append_args, args);
@@ -366,7 +383,9 @@ static void init(int argc_, const char **argv_)
 			continue;
 		}
 
-
+        /**
+         *  这是 gcc 选项
+         */
 		switch (arg[1]) {
 		case 'x':
 			if (arg[2] == '\0')
@@ -513,6 +532,9 @@ static void init(int argc_, const char **argv_)
 			fprintf(stderr, "\n");
 		}
 
+        /**
+         *  打印信息
+         */
 		fprintf(stderr, "KPCC_DEBUG=%d # debug output enabled\n", debug);
 		fprintf(stderr, "KPATCH_STAGE=\"%s\"\n", kpatch_stage);
 		fprintf(stderr, "KPCCREAL=\"%s\"\n", realgcc);
@@ -620,20 +642,48 @@ static int modify_args(void)
 	return 0;
 }
 
+/**
+ *  libcare-cc 编译 一个 高层次
+ */
 static int run_cmd(const char **argv, const char *path)
 {
 	pid_t pid;
 	int status;
 
+#if 0
+荣涛 2021年9月28日
+
+Makefie中
+
+    foo: foo.o
+        $(CC) foo.o -o foo -Wall -O3
+    
+    foo.o:foo.c
+        $(CC) -c foo.c -Wall -O2
+
+将会导致：
+
+    ../src/libcare-cc -c foo.c -Wall -O2
+    Compile>> /usr/bin/gcc -S foo.c -Wall -O2 -o ./.kpatch_foo.o.original.s
+    Compile>> /usr/bin/gcc -c ./.kpatch_foo.o.original.s -Wall -O2 -o foo.o
+
+    ../src/libcare-cc foo.o -o foo -Wall -O3
+    Compile>> /usr/bin/gcc foo.o -Wall -O3 -o foo
+#endif
+    
+    int _debug = debug;
+    debug = 1;
 	if (debug) {
 		int i = 0;
-		fprintf(stderr, "\"%s\"", path ?: argv[0]);
+        fprintf(stderr, "Compile>> ");
+		fprintf(stderr, "%s", path ?: argv[0]);
 		for (i = 1; argv[i]; i++) {
-			fprintf(stderr, " \"%s\"", argv[i]);
+			fprintf(stderr, " %s", argv[i]);
 		}
 		fprintf(stderr, "\n");
 	}
-
+    debug = _debug;
+    
 	pid = vfork();
 	if (pid == 0) {
 		execv(path ?: argv[0], (char * const *)argv);
@@ -697,6 +747,9 @@ static int do_dbgfilter(const char *aspath)
 	return rv;
 }
 
+/**
+ *  生成补丁
+ */
 static int do_generate_kpatch(char *aspath)
 {
 	const int aspathlen = strlen(aspath) + 1;
@@ -770,6 +823,9 @@ static int do_generate_kpatch(char *aspath)
 	return rv;
 }
 
+/**
+ *  
+ */
 static int compile_single(int action)
 {
 	char outarg[PATH_MAX + 16] = "-o", *aspath = outarg + 2;
@@ -788,6 +844,9 @@ static int compile_single(int action)
 
 	(void) get_assembler_filename(aspath, output_file);
 
+    /**
+     *  
+     */
 	switch (action) {
 	case COMPILE_ASSEMBLY_SINGLE:
 		copy_file(argv[idxinput_file], aspath);
@@ -804,6 +863,9 @@ static int compile_single(int action)
 		break;
 	}
 
+    /**
+     *  
+     */
 	if (stage == KPATCH_PATCHED) {
 		rv = do_generate_kpatch(aspath);
 		if (rv)
@@ -922,18 +984,24 @@ out:
 }
 
 /**
- *  
+ *  模拟 gcc - libcare-cc
  */
 static int emulate_cc(void)
 {
 	int rv;
 
+    /**
+     *  直接执行 gcc - realgcc
+     */
 	if (action == PASSTHROUGH || stage == KPATCH_CONFIGURE) {
 		argv[0] = realgcc;
 		execv(argv[0], (char * const *)argv);
 		return 129;
 	}
 
+    /**
+     *  
+     */
 	rv = modify_args();
 	if (rv != 0)
 		action = ERROR;
@@ -971,9 +1039,14 @@ int main(int argc_, const char **argv_)
 	init(argc_, argv_);
 
     /**
-     *  
+     *  模拟 gcc 进行编译
+     *  libcare-cc
      */
 	rv = emulate_cc();
+
+    /**
+     *  
+     */
 	fini();
 
 	return rv;

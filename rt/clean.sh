@@ -1,7 +1,7 @@
 #!/bin/bash 
 # 清理
 
-make clean -C ../src
+#make clean -C ../src
 
 rm -f *.s *.kpatch *.stripped
 
@@ -12,3 +12,5 @@ do
 		rm -f $f
 	fi
 done
+rm lpmake/ .lpmaketmp/ patchroot/ -rf .kpatch*
+rm foo.patch -f

@@ -1,0 +1,8 @@
+*.o
+*.d
+kpatch_gensrc
+kpatch_make
+kpatch_strip
+libcare-cc
+libcare-client
+libcare-ctl

@@ -1,0 +1,15 @@
+
+all: foo
+
+foo: foo.o
+	$(CC) foo.o -o foo -Wall -O3
+
+foo.o:foo.c
+	$(CC) -c foo.c -Wall -O2
+
+install:
+	mkdir $$DESTDIR || :
+	cp foo $$DESTDIR
+
+clean:
+	rm -f foo.o foo
