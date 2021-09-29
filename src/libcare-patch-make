@@ -25,9 +25,25 @@ EOF
 		exit ${1-0}
 }
 
-function press_any_key()
+# 
+# warn - print warn log
+# info - print info log
+function debug_log()
 {
-	echo -e "\033[1;31m>>>> $1 <<<<\033[m"
+	case $1 in
+	warn) 
+		echo -e "\033[1;31m[WARN]\033[m $2"
+		;;
+	info) 
+		echo -e "\033[1;32m[WARN]\033[m $2"
+		;;
+	debug) 
+		echo -e "\033[1;33m[DEBG]\033[m $2"
+		;;
+	*)
+		echo -e "\033[1;34m[DEBG]\033[m $1"
+		;;
+	esac
 	read -r -p "Press any key to continue..." __input
 }
 
@@ -39,15 +55,11 @@ prepare_env() {
 		exit 1
 	fi
 
-	press_any_key "Change CC to $KPATCH_PATH/libcare-cc"
-	# 修改编译器到 libcare 库
+	debug_log "Change CC to $KPATCH_PATH/libcare-cc"
+	# redirect cc to libcare-cc
 	export IS_LIBCARE_CC=y
 	export CC=$KPATCH_PATH/libcare-cc
 	export CXX=$CC
-	
-	# 修改 CC 到 libcare-cc
-	# 这种方法不行
-	# sed 's/CC=cc/CC=libcare-cc/g' -i build/config-host.mak
 
 	MAKE_OUTPUT=/dev/stdout
 
@@ -82,8 +94,8 @@ restore_origs() {
 '
 }
 
-# 负责将 源文件+patch=新的源代码 的新代码替换为补丁之前的代码
-# 脚本退出时候会执行这个函数
+# src + patch = patch.src
+# and trap singal like SIGINT
 trap "restore_origs" 0
 
 build_objects() {
@@ -92,9 +104,9 @@ build_objects() {
 	JOBS_MAKE=""
 	test $jobs_make && JOBS_MAKE="-j $jobs_make"
 
-	# --clean 清理
+	# --clean 
 	if test -n "$do_clean"; then
-		press_any_key "make $LPMAKEFILE clean"
+		debug_log "make $LPMAKEFILE clean"
 		make $LPMAKEFILE clean >$MAKE_OUTPUT 2>&1
 		rm -rf "$LPMAKE_ORIGINAL_DIR" "$LPMAKE_PATCHED_DIR"
 	fi
@@ -102,21 +114,21 @@ build_objects() {
 	export KPATCH_STAGE=original
 	export KPCC_DBGFILTER_ARGS=""
 
-	# 编译原始 代码 -> make
+	# compile -> make
 	echo "${green}BUILDING ORIGINAL CODE${reset}"
-	press_any_key "生成原始汇编文件: make $LPMAKEFILE $JOBS_MAKE"
+	debug_log "compile original code: make $LPMAKEFILE $JOBS_MAKE"
 	make $LPMAKEFILE $JOBS_MAKE >$MAKE_OUTPUT 2>&1
 	
-	# 安装原始 可执行文件 
+	# install oroginal  
 	# lpmake
 	echo "${green}INSTALLING ORIGINAL OBJECTS INTO $LPMAKE_ORIGINAL_DIR${reset}"
-	press_any_key "安装原始可执行文件: CC=$CC, make $LPMAKEFILE install $destdir=$LPMAKE_ORIGINAL_DIR"
+	debug_log "install original elf: CC=$CC, make $LPMAKEFILE install $destdir=$LPMAKE_ORIGINAL_DIR"
 	make $LPMAKEFILE install				\
 		"$destdir=$LPMAKE_ORIGINAL_DIR"			\
 		>$MAKE_OUTPUT 2>&1
 
 	local oldpwd="$(pwd)"
-	# 字符串长度不为 0
+	# string length is not 0
 	if test -n "$srcdir"; then
 		cd "$srcdir"
 	fi
@@ -128,8 +140,8 @@ build_objects() {
 		# -b  make backup file
 		# -z
 		# -p  
-		# 这将 src.c + src.patch = src-patch.c 还原出补丁后的代码
-		press_any_key "还原补丁代码: PWD=$PWD, ==> $patch ==> .${i}.lpmakeorig"
+		#  src.c + src.patch = src-patch.c 
+		debug_log "recover patch code: PWD=$PWD, ==> $patch ==> .${i}.lpmakeorig"
 		patch -b -z .${i}.lpmakeorig -p1 < $patch
 	done
 	
@@ -141,76 +153,76 @@ build_objects() {
 	export KPATCH_STAGE=patched
 	export KPCC_APPEND_ARGS="-Wl,-q"
 
-	# 编译补丁后 代码
+	# compile patch.c
 	echo "${green}BUILDING PATCHED CODE${reset}"
-	press_any_key "编译补丁代码: CC=$CC, make $LPMAKEFILE $JOBS_MAKE"
+	debug_log "compile patch code: CC=$CC, make $LPMAKEFILE $JOBS_MAKE"
 	make $LPMAKEFILE $JOBS_MAKE >$MAKE_OUTPUT 2>&1
-	press_any_key "上面的步骤生成了 补丁前后及其对比的汇编文件"
+	debug_log "Now, generate src.s and patch.s"
 
-	# 将补丁后代码安装到 对应路径
+	# 
 	# .lpmaketmp/patched
 	echo "${green}INSTALLING PATCHED OBJECTS INTO $LPMAKE_PATCHED_DIR${reset}"
-	press_any_key "安装补丁代码: CC=$CC, make $LPMAKEFILE install $destdir=$LPMAKE_PATCHED_DIR"
+	debug_log "install patched code: CC=$CC, make $LPMAKEFILE install $destdir=$LPMAKE_PATCHED_DIR"
 	make $LPMAKEFILE install				\
 		"$destdir=$LPMAKE_PATCHED_DIR"			\
 		>$MAKE_OUTPUT 2>&1
 }
 
 build_kpatches() {
-	# 创建文件夹 patchroot，用于存放 kpatch 补丁文件
+	# make patchroot dir
 	mkdir -p "${LPMAKE_PATCHROOT}"
 	
 	echo "${green}MAKING PATCHES${reset}"
-	press_any_key "开始制作补丁"
+	debug_log "Start to make patches"
 
-	# 查找 lpmake 目录下有可执行权限的 文件
+	# loop all chmod exec file under lpmake 
 	for execfile in $(find "$LPMAKE_ORIGINAL_DIR" -perm /0111 -type f); do
-		# 可执行文件: 带路径
+		# ELF  file with whole path
 		origexec="$execfile"
-		# 可执行文件: 不带路径
+		# ELF  file no path
 		filename="${origexec##*$LPMAKE_ORIGINAL_DIR/}"
-		# 对应的 patch 文件 .lpmaketmp/patched/foo
-		# 此 ELF 文件是有 .kpatch section 的
+		#  .lpmaketmp/patched/foo
+		# this ELF has .kpatch section 
 		patchedexec="$LPMAKE_PATCHED_DIR/$filename"
 	
 		#echo "origexec = $origexec"
 		#echo "filename = $filename"
 		#echo "patchedexec = $patchedexec"
 
-		# 查找 原始文件中对应的 Build ID
-		# 注意：原始 可执行文件 与 kpatch 可执行文件的 Build ID 是不同的
+		# find ELF Build ID
+		# NOTE: original ELF's Build ID is different with kpatch ELF
 		buildid=$(eu-readelf -n "$origexec" | sed -n '/Build ID:/ { s/.* //; p }')
 
-		press_any_key "获取 $origexec 的 Build ID = $buildid"
+		debug_log "Get $origexec's Build ID = $buildid"
 		#echo "$origexec Build ID = $buildid"
-		# 这个 patch ELF 可执行文件中是否包含 .kpatch section
+		# ELF must contain .kpatch* section
 		# -q: quiet
 		if ! eu-readelf -S "$patchedexec" | grep -q '.kpatch'; then
-			press_any_key "$patchedexec 中不包含 .kpatch section"
+			debug_log "$patchedexec Not contain .kpatch section"
 			continue
 		fi
 
 		test -n "$buildid" || continue
 
-		press_any_key "$patchedexec 中包含 .kpatch section"
+		debug_log "$patchedexec contain .kpatch section"
 
-		# 添加可执行权限
+		# chmod execute
 		chmod u+w "${origexec}" "${patchedexec}"
 
-		press_any_key "脱去 ${patchedexec} 中除了.kpatch以外的seciton"
-		# 脱去没用的 section
+		debug_log "Strip the sections that is not .kpatch in ${patchedexec}"
+		# Striping section
 		$KPATCH_PATH/kpatch_strip --strip "${patchedexec}" \
 			"${patchedexec}.stripped" >/dev/null
 		$KPATCH_PATH/kpatch_strip --rel-fixup "$origexec" \
 			"${patchedexec}.stripped" || continue
 		/usr/bin/strip --strip-unneeded "${patchedexec}.stripped"
 		$KPATCH_PATH/kpatch_strip --undo-link "$origexec" "${patchedexec}.stripped"
-		# 生成 kpatch 热补丁文件
-		press_any_key "生成热补丁文件: ${LPMAKE_PATCHROOT}/${buildid}.kpatch"
+		# Generate kpatch hot patch
+		debug_log "Generate HOT patch: ${LPMAKE_PATCHROOT}/${buildid}.kpatch"
 		$KPATCH_PATH/kpatch_make -b "$buildid" \
 			"${patchedexec}.stripped" -o "${patchedexec}.kpatch"
 		cp "${patchedexec}.kpatch" "${LPMAKE_PATCHROOT}"/${buildid}.kpatch
-		echo "patch for ${origexec} is in ${LPMAKE_PATCHROOT}/${buildid}.kpatch"
+		debug_log "warn" "patch for ${origexec} is in ${LPMAKE_PATCHROOT}/${buildid}.kpatch"
 	done
 }
 
@@ -254,12 +266,12 @@ main() {
 
 	prepare_env
 	
-	# 字符串长度为0
+	# String length is zero
 	if test -z "$only_update"; then
 		build_objects "$@"
 	fi
 	build_kpatches
 }
 
-press_any_key "Ready to start"
+debug_log "Ready to start"
 main "$@"
