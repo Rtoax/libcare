@@ -1,6 +1,9 @@
 LibCare -- Patch Userspace Code on Live Processes
 =================================================
 
+ .. GitHub Libcareplus: https://github.com/Rtoax/libcareplus
+ .. Gitee Libcareplus: https://gitee.com/rtoax/libcareplus
+
 Welcome to LibCare --- Live Patch Updates for Userspace Processes and Libraries.
 
 LibCare delivers live patches to any of your Linux executables or libraries at
